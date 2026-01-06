@@ -24,15 +24,15 @@ router.post('/signin', async (req: Request, res: Response, next: NextFunction) =
     // Validate provider
     if (!isValidProvider(provider)) {
       throw new AppError(
-        400,
         `Invalid provider. Supported: ${SUPPORTED_PROVIDERS.join(', ')}`,
+        400,
         'INVALID_PROVIDER'
       );
     }
 
     // Validate idToken
     if (!idToken || typeof idToken !== 'string') {
-      throw new AppError(400, 'idToken is required', 'MISSING_TOKEN');
+      throw new AppError('idToken is required', 400, 'MISSING_TOKEN');
     }
 
     const tokens = await authService.signIn({
@@ -56,7 +56,7 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
     const { refreshToken } = req.body;
 
     if (!refreshToken || typeof refreshToken !== 'string') {
-      throw new AppError(400, 'refreshToken is required', 'MISSING_REFRESH_TOKEN');
+      throw new AppError('refreshToken is required', 400, 'MISSING_REFRESH_TOKEN');
     }
 
     const tokens = await authService.refreshSession({ refreshToken });

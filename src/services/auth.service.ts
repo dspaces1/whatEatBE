@@ -47,18 +47,18 @@ export const authService = {
       });
 
       if (error) {
-        logger.error(`Supabase ${provider} sign in failed`, { error: error.message });
-        throw new AppError(401, 'Authentication failed', 'AUTH_FAILED');
+        logger.error({ error: error.message }, `Supabase ${provider} sign in failed`);
+        throw new AppError('Authentication failed', 401, 'AUTH_FAILED');
       }
 
       if (!data.session || !data.user) {
-        throw new AppError(401, 'No session returned', 'AUTH_NO_SESSION');
+        throw new AppError('No session returned', 401, 'AUTH_NO_SESSION');
       }
 
       // Handle provider-specific post-auth logic
       await this.handleProviderMetadata(provider, data.user.id, { fullName });
 
-      logger.info(`${provider} sign in successful`, { userId: data.user.id, provider });
+      logger.info({ userId: data.user.id, provider }, `${provider} sign in successful`);
 
       return {
         accessToken: data.session.access_token,
@@ -74,8 +74,8 @@ export const authService = {
     } catch (error) {
       if (error instanceof AppError) throw error;
       
-      logger.error(`${provider} sign in error`, { error, provider });
-      throw new AppError(500, 'Authentication service error', 'AUTH_SERVICE_ERROR');
+      logger.error({ error, provider }, `${provider} sign in error`);
+      throw new AppError('Authentication service error', 500, 'AUTH_SERVICE_ERROR');
     }
   },
 
@@ -125,12 +125,12 @@ export const authService = {
       });
 
       if (error) {
-        logger.error('Token refresh failed', { error: error.message });
-        throw new AppError(401, 'Invalid refresh token', 'INVALID_REFRESH_TOKEN');
+        logger.error({ error: error.message }, 'Token refresh failed');
+        throw new AppError('Invalid refresh token', 401, 'INVALID_REFRESH_TOKEN');
       }
 
       if (!data.session || !data.user) {
-        throw new AppError(401, 'No session returned', 'REFRESH_NO_SESSION');
+        throw new AppError('No session returned', 401, 'REFRESH_NO_SESSION');
       }
 
       return {
@@ -147,8 +147,8 @@ export const authService = {
     } catch (error) {
       if (error instanceof AppError) throw error;
 
-      logger.error('Token refresh error', { error });
-      throw new AppError(500, 'Token refresh service error', 'REFRESH_SERVICE_ERROR');
+      logger.error({ error }, 'Token refresh error');
+      throw new AppError('Token refresh service error', 500, 'REFRESH_SERVICE_ERROR');
     }
   },
 
@@ -160,13 +160,13 @@ export const authService = {
       const { error } = await supabaseAdmin.auth.admin.signOut(userId);
       
       if (error) {
-        logger.warn('Sign out error', { userId, error: error.message });
+        logger.warn({ userId, error: error.message }, 'Sign out error');
         // Don't throw - sign out should be best-effort
       }
 
-      logger.info('User signed out', { userId });
+      logger.info({ userId }, 'User signed out');
     } catch (error) {
-      logger.error('Sign out service error', { userId, error });
+      logger.error({ userId, error }, 'Sign out service error');
       // Don't throw - sign out should be best-effort
     }
   },

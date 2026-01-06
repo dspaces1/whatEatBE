@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
-import type { SuggestedRecipeData, UserPreferences } from '../types/index.js';
+import type { SuggestedRecipeData, UserPreferences, Json } from '../types/index.js';
 
 export class AIService {
   /**
@@ -77,7 +77,7 @@ export class AIService {
       .insert(
         suggestions.map((recipe_data) => ({
           user_id: userId,
-          recipe_data,
+          recipe_data: recipe_data as unknown as Json,
           expires_at: expiresAt.toISOString(),
         }))
       );

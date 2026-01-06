@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import pinoHttp from 'pino-http';
@@ -21,10 +21,10 @@ export const createApp = () => {
   app.use(express.json({ limit: '10mb' }));
 
   // Logging
-  app.use(pinoHttp({
+  app.use(pinoHttp.default({
     logger,
-    customProps: (req) => ({
-      requestId: req.requestId,
+    customProps: (req: Request) => ({
+      requestId: (req as Request & { requestId?: string }).requestId,
     }),
   }));
 
