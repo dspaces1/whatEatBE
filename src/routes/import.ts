@@ -1,0 +1,138 @@
+import { Router, Response } from 'express';
+import { z } from 'zod';
+import { supabaseAdmin } from '../config/supabase.js';
+import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
+import { BadRequestError, NotFoundError } from '../utils/errors.js';
+
+const router = Router();
+
+// Validation schemas
+const importUrlSchema = z.object({
+  url: z.string().url(),
+});
+
+const importImageSchema = z.object({
+  image_path: z.string().min(1),
+});
+
+// Import recipe from URL
+router.post('/url', requireAuth, async (req, res: Response, next) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const { url } = importUrlSchema.parse(req.body);
+
+    // Create import job
+    const { data: job, error } = await supabaseAdmin
+      .from('import_jobs')
+      .insert({
+        user_id: authReq.userId,
+        type: 'url',
+        status: 'pending',
+        input_url: url,
+      })
+      .select()
+      .single();
+
+    if (error || !job) {
+      throw new BadRequestError('Failed to create import job');
+    }
+
+    // TODO: Trigger async job processing
+    // This could be done via:
+    // - A background worker polling the jobs table
+    // - A webhook/queue system
+    // - Direct processing for simple cases
+
+    res.status(202).json({
+      job_id: job.id,
+      status: job.status,
+      message: 'Import job created. Poll GET /api/v1/import/jobs/:id for status.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Import recipe from image
+router.post('/image', requireAuth, async (req, res: Response, next) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const { image_path } = importImageSchema.parse(req.body);
+
+    // Create import job
+    const { data: job, error } = await supabaseAdmin
+      .from('import_jobs')
+      .insert({
+        user_id: authReq.userId,
+        type: 'image',
+        status: 'pending',
+        input_image_path: image_path,
+      })
+      .select()
+      .single();
+
+    if (error || !job) {
+      throw new BadRequestError('Failed to create import job');
+    }
+
+    // TODO: Trigger async job processing
+
+    res.status(202).json({
+      job_id: job.id,
+      status: job.status,
+      message: 'Import job created. Poll GET /api/v1/import/jobs/:id for status.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get job status
+router.get('/jobs/:id', requireAuth, async (req, res: Response, next) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const { id } = req.params;
+
+    const { data: job, error } = await supabaseAdmin
+      .from('import_jobs')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', authReq.userId)
+      .single();
+
+    if (error || !job) {
+      throw new NotFoundError('Import job');
+    }
+
+    res.json(job);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List user's import jobs
+router.get('/jobs', requireAuth, async (req, res: Response, next) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+
+    const { data: jobs, error } = await supabaseAdmin
+      .from('import_jobs')
+      .select('*')
+      .eq('user_id', authReq.userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      throw new BadRequestError('Failed to fetch import jobs');
+    }
+
+    res.json({ jobs: jobs ?? [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;
+
+
+
