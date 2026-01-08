@@ -4,6 +4,7 @@ import authRouter from './auth.js';
 import recipesRouter from './recipes.js';
 import importRouter from './import.js';
 import dailyRouter from './daily.js';
+import feedRouter from './feed.js';
 
 export const routes = Router();
 
@@ -12,6 +13,9 @@ routes.use(healthRouter);
 
 // Auth routes (no auth required - this IS the auth)
 routes.use('/auth', authRouter);
+
+// Feed routes (public browsing, auth optional except for save)
+routes.use('/feed', feedRouter);
 
 // Protected routes
 routes.use('/recipes', recipesRouter);

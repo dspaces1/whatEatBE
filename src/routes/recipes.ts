@@ -7,12 +7,19 @@ import { NotFoundError, BadRequestError } from '../utils/errors.js';
 const router = Router();
 
 // Validation schemas
+const mediaSchema = z.object({
+  media_type: z.enum(['image', 'video']),
+  url: z.string().url(),
+  name: z.string().max(200).optional(),
+});
+
 const createRecipeSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   source_type: z.enum(['manual', 'url', 'image', 'ai']).default('manual'),
   source_url: z.string().url().optional(),
   image_path: z.string().optional(),
+  calories: z.number().int().positive().optional(),
   prep_time_minutes: z.number().int().positive().optional(),
   cook_time_minutes: z.number().int().positive().optional(),
   servings: z.number().int().positive().optional(),
@@ -25,6 +32,7 @@ const createRecipeSchema = z.object({
   steps: z.array(z.object({
     instruction: z.string().min(1),
   })).optional(),
+  media: z.array(mediaSchema).optional(),
 });
 
 const updateRecipeSchema = createRecipeSchema.partial();
@@ -105,10 +113,18 @@ router.get('/:id', requireAuth, async (req, res: Response, next) => {
       .eq('recipe_id', id)
       .order('position');
 
+    // Get media
+    const { data: media } = await supabaseAdmin
+      .from('recipe_media')
+      .select('*')
+      .eq('recipe_id', id)
+      .order('position');
+
     res.json({
       ...recipe,
       ingredients: ingredients ?? [],
       steps: steps ?? [],
+      media: media ?? [],
     });
   } catch (err) {
     next(err);
@@ -120,7 +136,7 @@ router.post('/', requireAuth, async (req, res: Response, next) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const validatedData = createRecipeSchema.parse(req.body);
-    const { ingredients, steps, ...recipeData } = validatedData;
+    const { ingredients, steps, media, ...recipeData } = validatedData;
 
     // Create recipe
     const { data: recipe, error: recipeError } = await supabaseAdmin
@@ -170,6 +186,23 @@ router.post('/', requireAuth, async (req, res: Response, next) => {
       }
     }
 
+    // Create media
+    if (media && media.length > 0) {
+      const { error: mediaError } = await supabaseAdmin
+        .from('recipe_media')
+        .insert(
+          media.map((m, index) => ({
+            recipe_id: recipe.id,
+            position: index + 1,
+            ...m,
+          }))
+        );
+
+      if (mediaError) {
+        throw new BadRequestError('Failed to create media');
+      }
+    }
+
     res.status(201).json(recipe);
   } catch (err) {
     next(err);
@@ -182,7 +215,7 @@ router.patch('/:id', requireAuth, async (req, res: Response, next) => {
     const authReq = req as AuthenticatedRequest;
     const { id } = req.params;
     const validatedData = updateRecipeSchema.parse(req.body);
-    const { ingredients, steps, ...recipeData } = validatedData;
+    const { ingredients, steps, media, ...recipeData } = validatedData;
 
     // Verify ownership
     const { data: existing } = await supabaseAdmin
@@ -251,6 +284,28 @@ router.patch('/:id', requireAuth, async (req, res: Response, next) => {
               recipe_id: id,
               position: index + 1,
               ...step,
+            }))
+          );
+      }
+    }
+
+    // Update media if provided
+    if (media !== undefined) {
+      // Delete existing media
+      await supabaseAdmin
+        .from('recipe_media')
+        .delete()
+        .eq('recipe_id', id);
+
+      // Insert new media
+      if (media.length > 0) {
+        await supabaseAdmin
+          .from('recipe_media')
+          .insert(
+            media.map((m, index) => ({
+              recipe_id: id,
+              position: index + 1,
+              ...m,
             }))
           );
       }

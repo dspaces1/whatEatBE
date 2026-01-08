@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../config/supabase.js';
-import type { Recipe, RecipeIngredient, RecipeStep } from '../types/index.js';
+import type { Recipe, RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
 export interface CreateRecipeInput {
   user_id: string;
@@ -7,7 +7,9 @@ export interface CreateRecipeInput {
   description?: string;
   source_type: 'manual' | 'url' | 'image' | 'ai';
   source_url?: string;
+  source_feed_recipe_id?: string;
   image_path?: string;
+  calories?: number;
   prep_time_minutes?: number;
   cook_time_minutes?: number;
   servings?: number;
@@ -20,14 +22,19 @@ export interface CreateRecipeInput {
   steps?: Array<{
     instruction: string;
   }>;
+  media?: Array<{
+    media_type: 'image' | 'video';
+    url: string;
+    name?: string;
+  }>;
 }
 
 export class RecipeService {
   /**
-   * Create a new recipe with ingredients and steps
+   * Create a new recipe with ingredients, steps, and media
    */
   async create(input: CreateRecipeInput): Promise<Recipe> {
-    const { ingredients, steps, ...recipeData } = input;
+    const { ingredients, steps, media, ...recipeData } = input;
 
     // Create recipe
     const { data: recipe, error: recipeError } = await supabaseAdmin
@@ -78,11 +85,30 @@ export class RecipeService {
       }
     }
 
+    // Create media
+    if (media && media.length > 0) {
+      const { error: mediaError } = await supabaseAdmin
+        .from('recipe_media')
+        .insert(
+          media.map((m, index) => ({
+            recipe_id: recipe.id,
+            position: index + 1,
+            ...m,
+          }))
+        );
+
+      if (mediaError) {
+        // Rollback recipe creation
+        await supabaseAdmin.from('recipes').delete().eq('id', recipe.id);
+        throw new Error(`Failed to create media: ${mediaError.message}`);
+      }
+    }
+
     return recipe as Recipe;
   }
 
   /**
-   * Get a recipe by ID with ingredients and steps
+   * Get a recipe by ID with ingredients, steps, and media
    */
   async getById(id: string, userId: string): Promise<Recipe | null> {
     const { data: recipe, error } = await supabaseAdmin
@@ -111,10 +137,18 @@ export class RecipeService {
       .eq('recipe_id', id)
       .order('position');
 
+    // Get media
+    const { data: media } = await supabaseAdmin
+      .from('recipe_media')
+      .select('*')
+      .eq('recipe_id', id)
+      .order('position');
+
     return {
       ...recipe,
       ingredients: (ingredients ?? []) as RecipeIngredient[],
       steps: (steps ?? []) as RecipeStep[],
+      media: (media ?? []) as RecipeMedia[],
     } as Recipe;
   }
 

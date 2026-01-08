@@ -54,6 +54,156 @@ export type Database = {
           }
         ];
       };
+      feed_recipes: {
+        Row: {
+          id: string;
+          title: string;
+          description: string | null;
+          calories: number | null;
+          prep_time_minutes: number | null;
+          cook_time_minutes: number | null;
+          servings: number | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          title: string;
+          description?: string | null;
+          calories?: number | null;
+          prep_time_minutes?: number | null;
+          cook_time_minutes?: number | null;
+          servings?: number | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          title?: string;
+          description?: string | null;
+          calories?: number | null;
+          prep_time_minutes?: number | null;
+          cook_time_minutes?: number | null;
+          servings?: number | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+        };
+        Relationships: [];
+      };
+      feed_recipe_media: {
+        Row: {
+          id: string;
+          feed_recipe_id: string;
+          position: number;
+          media_type: string;
+          url: string;
+          name: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          feed_recipe_id: string;
+          position: number;
+          media_type: string;
+          url: string;
+          name?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          feed_recipe_id?: string;
+          position?: number;
+          media_type?: string;
+          url?: string;
+          name?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "feed_recipe_media_feed_recipe_id_fkey";
+            columns: ["feed_recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "feed_recipes";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      feed_recipe_ingredients: {
+        Row: {
+          id: string;
+          feed_recipe_id: string;
+          position: number;
+          raw_text: string;
+          quantity: number | null;
+          unit: string | null;
+          ingredient_name: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          feed_recipe_id: string;
+          position: number;
+          raw_text: string;
+          quantity?: number | null;
+          unit?: string | null;
+          ingredient_name?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          feed_recipe_id?: string;
+          position?: number;
+          raw_text?: string;
+          quantity?: number | null;
+          unit?: string | null;
+          ingredient_name?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "feed_recipe_ingredients_feed_recipe_id_fkey";
+            columns: ["feed_recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "feed_recipes";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      feed_recipe_steps: {
+        Row: {
+          id: string;
+          feed_recipe_id: string;
+          position: number;
+          instruction: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          feed_recipe_id: string;
+          position: number;
+          instruction: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          feed_recipe_id?: string;
+          position?: number;
+          instruction?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "feed_recipe_steps_feed_recipe_id_fkey";
+            columns: ["feed_recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "feed_recipes";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       import_jobs: {
         Row: {
           id: string;
@@ -152,6 +302,44 @@ export type Database = {
           }
         ];
       };
+      recipe_media: {
+        Row: {
+          id: string;
+          recipe_id: string;
+          position: number;
+          media_type: string;
+          url: string;
+          name: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          recipe_id: string;
+          position: number;
+          media_type: string;
+          url: string;
+          name?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          recipe_id?: string;
+          position?: number;
+          media_type?: string;
+          url?: string;
+          name?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "recipe_media_recipe_id_fkey";
+            columns: ["recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "recipes";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       recipe_steps: {
         Row: {
           id: string;
@@ -192,7 +380,9 @@ export type Database = {
           description: string | null;
           source_type: string;
           source_url: string | null;
+          source_feed_recipe_id: string | null;
           image_path: string | null;
+          calories: number | null;
           prep_time_minutes: number | null;
           cook_time_minutes: number | null;
           servings: number | null;
@@ -207,7 +397,9 @@ export type Database = {
           description?: string | null;
           source_type: string;
           source_url?: string | null;
+          source_feed_recipe_id?: string | null;
           image_path?: string | null;
+          calories?: number | null;
           prep_time_minutes?: number | null;
           cook_time_minutes?: number | null;
           servings?: number | null;
@@ -222,7 +414,9 @@ export type Database = {
           description?: string | null;
           source_type?: string;
           source_url?: string | null;
+          source_feed_recipe_id?: string | null;
           image_path?: string | null;
+          calories?: number | null;
           prep_time_minutes?: number | null;
           cook_time_minutes?: number | null;
           servings?: number | null;
@@ -236,6 +430,13 @@ export type Database = {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "fk_recipes_source_feed_recipe";
+            columns: ["source_feed_recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "feed_recipes";
             referencedColumns: ["id"];
           }
         ];

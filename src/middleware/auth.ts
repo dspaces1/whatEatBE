@@ -64,6 +64,43 @@ export const requireAuth = async (
   }
 };
 
+/**
+ * Optional authentication middleware
+ * Attaches user info if valid token is present, but allows request to proceed without auth
+ */
+export const optionalAuth = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      // No auth header, continue without user info
+      next();
+      return;
+    }
+
+    const token = authHeader.slice(7);
+
+    // Verify the Supabase JWT
+    const payload = jwt.verify(token, env.SUPABASE_JWT_SECRET) as SupabaseJwtPayload;
+
+    // Validate it's an authenticated user token
+    if (payload.aud === 'authenticated') {
+      // Attach user info to request
+      (req as AuthenticatedRequest).userId = payload.sub;
+      (req as AuthenticatedRequest).userEmail = payload.email;
+    }
+
+    next();
+  } catch {
+    // Invalid token, continue without user info
+    next();
+  }
+};
+
 
 
 

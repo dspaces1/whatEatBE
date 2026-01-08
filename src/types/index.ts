@@ -1,6 +1,27 @@
 export type { Database, Json } from './supabase.js';
 export type { AuthenticatedRequest } from './express.js';
 
+// Media types
+export interface RecipeMedia {
+  id: string;
+  recipe_id: string;
+  position: number;
+  media_type: 'image' | 'video';
+  url: string;
+  name: string | null;
+  created_at: string;
+}
+
+export interface FeedRecipeMedia {
+  id: string;
+  feed_recipe_id: string;
+  position: number;
+  media_type: 'image' | 'video';
+  url: string;
+  name: string | null;
+  created_at: string;
+}
+
 // Recipe types for API responses
 export interface RecipeIngredient {
   id: string;
@@ -26,7 +47,9 @@ export interface Recipe {
   description: string | null;
   source_type: 'manual' | 'url' | 'image' | 'ai';
   source_url: string | null;
+  source_feed_recipe_id: string | null;
   image_path: string | null;
+  calories: number | null;
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
   servings: number | null;
@@ -35,6 +58,41 @@ export interface Recipe {
   deleted_at: string | null;
   ingredients?: RecipeIngredient[];
   steps?: RecipeStep[];
+  media?: RecipeMedia[];
+}
+
+// Feed recipe types (global AI-generated recipes)
+export interface FeedRecipeIngredient {
+  id: string;
+  feed_recipe_id: string;
+  position: number;
+  raw_text: string;
+  quantity: number | null;
+  unit: string | null;
+  ingredient_name: string | null;
+}
+
+export interface FeedRecipeStep {
+  id: string;
+  feed_recipe_id: string;
+  position: number;
+  instruction: string;
+}
+
+export interface FeedRecipe {
+  id: string;
+  title: string;
+  description: string | null;
+  calories: number | null;
+  prep_time_minutes: number | null;
+  cook_time_minutes: number | null;
+  servings: number | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  ingredients?: FeedRecipeIngredient[];
+  steps?: FeedRecipeStep[];
+  media?: FeedRecipeMedia[];
 }
 
 export interface ImportJob {
