@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../config/supabase.js';
-import { recipeService, CreateRecipeInput } from './recipe.service.js';
+import { recipeService } from './recipe.service.js';
 import { logger } from '../utils/logger.js';
+import type { LegacyCreateRecipe } from '../schemas/envelope.js';
 
 const MAX_RETRIES = 3;
 
@@ -28,18 +29,18 @@ export class ImportService {
       .eq('id', jobId);
 
     try {
-      let recipeData: CreateRecipeInput;
+      let recipeData: LegacyCreateRecipe;
 
       if (job.type === 'url' && job.input_url) {
-        recipeData = await this.extractFromUrl(job.input_url, job.user_id);
+        recipeData = await this.extractFromUrl(job.input_url);
       } else if (job.type === 'image' && job.input_image_path) {
-        recipeData = await this.extractFromImage(job.input_image_path, job.user_id);
+        recipeData = await this.extractFromImage(job.input_image_path);
       } else {
         throw new Error('Invalid job type or missing input');
       }
 
-      // Create the recipe
-      const recipe = await recipeService.create(recipeData);
+      // Create the recipe using the service
+      const recipe = await recipeService.createRecipe(recipeData, job.user_id);
 
       // Mark job as completed
       await supabaseAdmin
@@ -87,7 +88,7 @@ export class ImportService {
    * Extract recipe data from a URL
    * TODO: Implement actual scraping logic
    */
-  async extractFromUrl(url: string, userId: string): Promise<CreateRecipeInput> {
+  async extractFromUrl(url: string): Promise<LegacyCreateRecipe> {
     // TODO: Implement URL scraping
     // 1. Fetch the webpage
     // 2. Look for schema.org/Recipe JSON-LD
@@ -103,7 +104,7 @@ export class ImportService {
    * Extract recipe data from an image
    * TODO: Implement actual OCR/AI logic
    */
-  async extractFromImage(imagePath: string, userId: string): Promise<CreateRecipeInput> {
+  async extractFromImage(imagePath: string): Promise<LegacyCreateRecipe> {
     // TODO: Implement image extraction
     // 1. Get signed URL for the image from Supabase Storage
     // 2. Send to OpenAI Vision API
@@ -117,8 +118,3 @@ export class ImportService {
 }
 
 export const importService = new ImportService();
-
-
-
-
-

@@ -1,28 +1,120 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { feedService } from '../services/feed.service.js';
-import { requireAuth, optionalAuth, AuthenticatedRequest } from '../middleware/auth.js';
-import { NotFoundError } from '../utils/errors.js';
+import { supabaseAdmin } from '../config/supabase.js';
+import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
+import { aiService } from '../services/ai.service.js';
+import { recipeService } from '../services/recipe.service.js';
+import { dbToEnvelope } from '../schemas/envelope.js';
+import { NotFoundError, BadRequestError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import type { RecipeListItem, Recipe, RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
 const router = Router();
 
-// Validation schemas
+// Pagination schema
 const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+// Filter schema
+const filterSchema = z.object({
+  cuisine: z.string().optional(),
+  tags: z.string().optional(), // comma-separated
+  dietary_labels: z.string().optional(), // comma-separated
+});
+
 /**
  * GET /feed
- * List feed recipes (public, paginated)
+ * Get paginated feed of global AI recipes (public, user_id IS NULL)
  */
-router.get('/', optionalAuth, async (req: Request, res: Response, next) => {
+router.get('/', async (req: Request, res: Response, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
+    const filters = filterSchema.parse(req.query);
+    const offset = (page - 1) * limit;
 
-    const result = await feedService.getFeedRecipes(page, limit);
+    // Build query for global feed recipes (user_id IS NULL)
+    let query = supabaseAdmin
+      .from('recipes')
+      .select('*', { count: 'exact' })
+      .is('user_id', null)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
-    res.json(result);
+    // Apply filters
+    if (filters.cuisine) {
+      query = query.eq('cuisine', filters.cuisine);
+    }
+    if (filters.tags) {
+      const tags = filters.tags.split(',').map((t) => t.trim());
+      query = query.overlaps('tags', tags);
+    }
+    if (filters.dietary_labels) {
+      const labels = filters.dietary_labels.split(',').map((l) => l.trim());
+      query = query.overlaps('dietary_labels', labels);
+    }
+
+    const { data: recipes, error, count } = await query;
+
+    if (error) {
+      throw new Error(`Failed to fetch feed: ${error.message}`);
+    }
+
+    if (!recipes || recipes.length === 0) {
+      return res.json({
+        recipes: [],
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      });
+    }
+
+    // Get media for all recipes
+    const recipeIds = recipes.map((r) => r.id);
+    const { data: media } = await supabaseAdmin
+      .from('recipe_media')
+      .select('recipe_id, media_type, url, name')
+      .in('recipe_id', recipeIds)
+      .order('position');
+
+    // Map media to recipes
+    const mediaByRecipeId = new Map<string, Array<{ media_type: string; url: string; name: string | null }>>();
+    if (media) {
+      for (const m of media) {
+        const existing = mediaByRecipeId.get(m.recipe_id) || [];
+        existing.push(m);
+        mediaByRecipeId.set(m.recipe_id, existing);
+      }
+    }
+
+    const recipesWithMedia: RecipeListItem[] = recipes.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      calories: r.calories,
+      prep_time_minutes: r.prep_time_minutes,
+      cook_time_minutes: r.cook_time_minutes,
+      servings: r.servings,
+      tags: r.tags ?? [],
+      cuisine: r.cuisine,
+      source_type: r.source_type as 'manual' | 'url' | 'image' | 'ai',
+      created_at: r.created_at,
+      media: (mediaByRecipeId.get(r.id) || []).map((m) => ({
+        media_type: m.media_type as 'image' | 'video',
+        url: m.url,
+        name: m.name,
+      })),
+    }));
+
+    res.json({
+      recipes: recipesWithMedia,
+      pagination: {
+        page,
+        limit,
+        total: count ?? 0,
+        totalPages: Math.ceil((count ?? 0) / limit),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -30,19 +122,44 @@ router.get('/', optionalAuth, async (req: Request, res: Response, next) => {
 
 /**
  * GET /feed/:id
- * Get single feed recipe details (public)
+ * Get a single feed recipe with full details (returns envelope format)
  */
-router.get('/:id', optionalAuth, async (req: Request, res: Response, next) => {
+router.get('/:id', async (req: Request, res: Response, next) => {
   try {
     const { id } = req.params;
 
-    const recipe = await feedService.getFeedRecipeById(id);
+    // Get recipe (must be global - user_id IS NULL)
+    const { data: recipe, error } = await supabaseAdmin
+      .from('recipes')
+      .select('*')
+      .eq('id', id)
+      .is('user_id', null)
+      .is('deleted_at', null)
+      .single();
 
-    if (!recipe) {
+    if (error || !recipe) {
       throw new NotFoundError('Feed recipe');
     }
 
-    res.json(recipe);
+    // Get ingredients, steps, media
+    const [
+      { data: ingredients },
+      { data: steps },
+      { data: media },
+    ] = await Promise.all([
+      supabaseAdmin.from('recipe_ingredients').select('*').eq('recipe_id', id).order('position'),
+      supabaseAdmin.from('recipe_steps').select('*').eq('recipe_id', id).order('position'),
+      supabaseAdmin.from('recipe_media').select('*').eq('recipe_id', id).order('position'),
+    ]);
+
+    const envelope = dbToEnvelope(
+      recipe as Recipe,
+      (ingredients ?? []) as RecipeIngredient[],
+      (steps ?? []) as RecipeStep[],
+      (media ?? []) as RecipeMedia[]
+    );
+
+    res.json(envelope);
   } catch (err) {
     next(err);
   }
@@ -50,16 +167,114 @@ router.get('/:id', optionalAuth, async (req: Request, res: Response, next) => {
 
 /**
  * POST /feed/:id/save
- * Save a feed recipe to user's collection (creates a copy)
+ * Save a feed recipe to user's collection (authenticated)
  */
 router.post('/:id/save', requireAuth, async (req, res: Response, next) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const { id } = req.params;
 
-    const recipe = await feedService.saveFeedRecipeToUser(id, authReq.userId);
+    // Use the copy recipe functionality
+    const recipe = await recipeService.copyRecipe(id, authReq.userId);
 
-    res.status(201).json(recipe);
+    res.status(201).json({
+      id: recipe.id,
+      title: recipe.title,
+      source_recipe_id: recipe.source_recipe_id,
+      created_at: recipe.created_at,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      return next(new NotFoundError('Feed recipe'));
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /feed/generate
+ * Generate new AI recipes for the feed (admin/cron endpoint)
+ * In production, this should be protected by an API key or admin auth
+ */
+router.post('/generate', async (req: Request, res: Response, next) => {
+  try {
+    const { count = 3 } = z.object({
+      count: z.coerce.number().int().min(1).max(10).default(3),
+    }).parse(req.body || {});
+
+    logger.info({ count }, 'Generating feed recipes');
+
+    const envelopes = await aiService.generateFeedRecipes(count);
+
+    if (envelopes.length === 0) {
+      throw new BadRequestError('Failed to generate recipes. Is OpenAI API key configured?');
+    }
+
+    // Save all generated recipes
+    const savedRecipes = [];
+    for (const envelope of envelopes) {
+      const saved = await aiService.saveGeneratedRecipe(envelope);
+      if (saved) {
+        savedRecipes.push({
+          id: saved.id,
+          title: saved.title,
+          created_at: saved.created_at,
+        });
+      }
+    }
+
+    res.status(201).json({
+      generated: savedRecipes.length,
+      recipes: savedRecipes,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /feed/cuisines
+ * Get list of available cuisines in the feed
+ */
+router.get('/meta/cuisines', async (_req: Request, res: Response, next) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('recipes')
+      .select('cuisine')
+      .is('user_id', null)
+      .is('deleted_at', null)
+      .not('cuisine', 'is', null);
+
+    if (error) {
+      throw new Error(`Failed to fetch cuisines: ${error.message}`);
+    }
+
+    const cuisines = [...new Set(data?.map((r) => r.cuisine).filter(Boolean))];
+    res.json({ cuisines });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /feed/tags
+ * Get list of available tags in the feed
+ */
+router.get('/meta/tags', async (_req: Request, res: Response, next) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('recipes')
+      .select('tags')
+      .is('user_id', null)
+      .is('deleted_at', null);
+
+    if (error) {
+      throw new Error(`Failed to fetch tags: ${error.message}`);
+    }
+
+    const allTags = data?.flatMap((r) => r.tags ?? []) ?? [];
+    const uniqueTags = [...new Set(allTags)];
+    res.json({ tags: uniqueTags });
   } catch (err) {
     next(err);
   }

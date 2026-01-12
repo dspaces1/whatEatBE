@@ -1,0 +1,334 @@
+import { z } from 'zod';
+import type { Json } from '../types/supabase.js';
+
+// ============================================================================
+// Recipe Envelope Schema
+// ============================================================================
+// The canonical JSON format for recipe exchange. Used for:
+// - AI generation output validation
+// - Export/import between users
+// - Share link data
+// - API responses (full recipe detail)
+// ============================================================================
+
+// Media item schema
+const mediaItemSchema = z.object({
+  media_type: z.enum(['image', 'video']),
+  url: z.string().url(),
+  name: z.string().max(200).nullable().optional(),
+  is_generated: z.boolean().default(false),
+});
+
+// Ingredient schema (intentionally minimal to reduce AI hallucination)
+const ingredientSchema = z.object({
+  raw_text: z.string().min(1).max(500),
+});
+
+// Step schema
+const stepSchema = z.object({
+  instruction: z.string().min(1).max(2000),
+});
+
+// Source tracking schema
+const sourceSchema = z.object({
+  type: z.enum(['manual', 'url', 'image', 'ai']),
+  url: z.string().url().nullable().optional(),
+  recipe_id: z.string().uuid().nullable().optional(), // forked/copied from
+});
+
+// Metadata schema (flexible, for attribution and share notes)
+const metadataSchema = z.object({
+  attribution: z.string().max(500).nullable().optional(),
+  author_name: z.string().max(200).nullable().optional(),
+  share_notes: z.string().max(1000).nullable().optional(),
+}).passthrough(); // allow additional fields
+
+// The full recipe envelope schema
+export const recipeEnvelopeSchema = z.object({
+  format: z.literal('whatEat-recipe'),
+  version: z.literal(1),
+  recipe: z.object({
+    id: z.string().uuid().nullable(),
+    title: z.string().min(1).max(200),
+    description: z.string().max(2000).nullable().optional(),
+
+    // Nutritional & timing
+    servings: z.number().int().positive().nullable().optional(),
+    calories: z.number().int().positive().nullable().optional(),
+    prep_time_minutes: z.number().int().positive().nullable().optional(),
+    cook_time_minutes: z.number().int().positive().nullable().optional(),
+
+    // Categorization (free-form)
+    tags: z.array(z.string().max(50)).default([]),
+    cuisine: z.string().max(100).nullable().optional(),
+    dietary_labels: z.array(z.string().max(50)).default([]),
+
+    // Source
+    source: sourceSchema.default({ type: 'manual' }),
+
+    // Content
+    ingredients: z.array(ingredientSchema).min(1),
+    steps: z.array(stepSchema).min(1),
+    media: z.array(mediaItemSchema).default([]),
+
+    // Metadata
+    metadata: metadataSchema.default({}),
+  }),
+});
+
+export type RecipeEnvelope = z.infer<typeof recipeEnvelopeSchema>;
+export type RecipeEnvelopeData = RecipeEnvelope['recipe'];
+
+// ============================================================================
+// Minimal AI Prompt Schema
+// ============================================================================
+// Simplified schema for AI generation - reduces token usage and hallucination.
+// Backend wraps AI output into full envelope.
+// ============================================================================
+
+export const aiRecipeOutputSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  servings: z.number().int().positive().optional(),
+  calories: z.number().int().positive().optional(),
+  prep_time_minutes: z.number().int().positive().optional(),
+  cook_time_minutes: z.number().int().positive().optional(),
+  tags: z.array(z.string()).optional(),
+  cuisine: z.string().optional(),
+  dietary_labels: z.array(z.string()).optional(),
+  ingredients: z.array(z.object({ raw_text: z.string() })),
+  steps: z.array(z.object({ instruction: z.string() })),
+});
+
+export type AIRecipeOutput = z.infer<typeof aiRecipeOutputSchema>;
+
+// ============================================================================
+// Transformation Utilities
+// ============================================================================
+
+/**
+ * Wrap AI output into a full recipe envelope
+ */
+export function wrapAIOutput(aiRecipe: AIRecipeOutput, imageUrl?: string): RecipeEnvelope {
+  return {
+    format: 'whatEat-recipe',
+    version: 1,
+    recipe: {
+      id: null,
+      title: aiRecipe.title,
+      description: aiRecipe.description ?? null,
+      servings: aiRecipe.servings ?? null,
+      calories: aiRecipe.calories ?? null,
+      prep_time_minutes: aiRecipe.prep_time_minutes ?? null,
+      cook_time_minutes: aiRecipe.cook_time_minutes ?? null,
+      tags: aiRecipe.tags ?? [],
+      cuisine: aiRecipe.cuisine ?? null,
+      dietary_labels: aiRecipe.dietary_labels ?? [],
+      source: { type: 'ai' },
+      ingredients: aiRecipe.ingredients,
+      steps: aiRecipe.steps,
+      media: imageUrl
+        ? [{ media_type: 'image', url: imageUrl, name: 'Hero image', is_generated: true }]
+        : [],
+      metadata: {
+        attribution: 'Generated by whatEat AI',
+      },
+    },
+  };
+}
+
+/**
+ * Transform envelope recipe data to database insert format
+ */
+export function envelopeToDbRecipe(envelope: RecipeEnvelope, userId: string | null) {
+  const { recipe } = envelope;
+  return {
+    user_id: userId,
+    title: recipe.title,
+    description: recipe.description,
+    servings: recipe.servings,
+    calories: recipe.calories,
+    prep_time_minutes: recipe.prep_time_minutes,
+    cook_time_minutes: recipe.cook_time_minutes,
+    tags: recipe.tags,
+    cuisine: recipe.cuisine,
+    dietary_labels: recipe.dietary_labels,
+    source_type: recipe.source.type,
+    source_url: recipe.source.url ?? null,
+    source_recipe_id: recipe.source.recipe_id ?? null,
+    metadata: recipe.metadata as Json,
+  };
+}
+
+/**
+ * Transform envelope ingredients to database insert format
+ */
+export function envelopeToDbIngredients(envelope: RecipeEnvelope, recipeId: string) {
+  return envelope.recipe.ingredients.map((ing, index) => ({
+    recipe_id: recipeId,
+    position: index + 1,
+    raw_text: ing.raw_text,
+  }));
+}
+
+/**
+ * Transform envelope steps to database insert format
+ */
+export function envelopeToDbSteps(envelope: RecipeEnvelope, recipeId: string) {
+  return envelope.recipe.steps.map((step, index) => ({
+    recipe_id: recipeId,
+    position: index + 1,
+    instruction: step.instruction,
+  }));
+}
+
+/**
+ * Transform envelope media to database insert format
+ */
+export function envelopeToDbMedia(
+  envelope: RecipeEnvelope,
+  recipeId: string,
+  storagePaths?: Map<string, string>
+) {
+  return envelope.recipe.media.map((m, index) => ({
+    recipe_id: recipeId,
+    position: index + 1,
+    media_type: m.media_type,
+    url: m.url,
+    storage_path: storagePaths?.get(m.url) ?? null,
+    name: m.name ?? null,
+    is_generated: m.is_generated,
+  }));
+}
+
+/**
+ * Transform database recipe to envelope format
+ */
+export function dbToEnvelope(
+  recipe: {
+    id: string;
+    title: string;
+    description: string | null;
+    servings: number | null;
+    calories: number | null;
+    prep_time_minutes: number | null;
+    cook_time_minutes: number | null;
+    tags: string[];
+    cuisine: string | null;
+    dietary_labels: string[];
+    source_type: string;
+    source_url: string | null;
+    source_recipe_id: string | null;
+    metadata: Json;
+  },
+  ingredients: Array<{ raw_text: string }>,
+  steps: Array<{ instruction: string }>,
+  media: Array<{ media_type: string; url: string; name: string | null; is_generated: boolean }>
+): RecipeEnvelope {
+  // Safely cast metadata from Json to the expected object shape
+  const metadataObj = (typeof recipe.metadata === 'object' && recipe.metadata !== null && !Array.isArray(recipe.metadata))
+    ? recipe.metadata as Record<string, unknown>
+    : {};
+
+  return {
+    format: 'whatEat-recipe',
+    version: 1,
+    recipe: {
+      id: recipe.id,
+      title: recipe.title,
+      description: recipe.description,
+      servings: recipe.servings,
+      calories: recipe.calories,
+      prep_time_minutes: recipe.prep_time_minutes,
+      cook_time_minutes: recipe.cook_time_minutes,
+      tags: recipe.tags ?? [],
+      cuisine: recipe.cuisine,
+      dietary_labels: recipe.dietary_labels ?? [],
+      source: {
+        type: recipe.source_type as 'manual' | 'url' | 'image' | 'ai',
+        url: recipe.source_url,
+        recipe_id: recipe.source_recipe_id,
+      },
+      ingredients: ingredients.map((i) => ({ raw_text: i.raw_text })),
+      steps: steps.map((s) => ({ instruction: s.instruction })),
+      media: media.map((m) => ({
+        media_type: m.media_type as 'image' | 'video',
+        url: m.url,
+        name: m.name,
+        is_generated: m.is_generated,
+      })),
+      metadata: metadataObj,
+    },
+  };
+}
+
+// ============================================================================
+// Legacy API Compatibility
+// ============================================================================
+// Schema that accepts the existing flat API format for backwards compatibility
+// ============================================================================
+
+export const legacyCreateRecipeSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  source_type: z.enum(['manual', 'url', 'image', 'ai']).default('manual'),
+  source_url: z.string().url().optional(),
+  calories: z.number().int().positive().optional(),
+  prep_time_minutes: z.number().int().positive().optional(),
+  cook_time_minutes: z.number().int().positive().optional(),
+  servings: z.number().int().positive().optional(),
+  tags: z.array(z.string()).optional(),
+  cuisine: z.string().optional(),
+  dietary_labels: z.array(z.string()).optional(),
+  ingredients: z.array(z.object({
+    raw_text: z.string().min(1),
+    quantity: z.number().optional(),
+    unit: z.string().optional(),
+    ingredient_name: z.string().optional(),
+  })).optional(),
+  steps: z.array(z.object({
+    instruction: z.string().min(1),
+  })).optional(),
+  media: z.array(z.object({
+    media_type: z.enum(['image', 'video']),
+    url: z.string().url(),
+    name: z.string().max(200).optional(),
+  })).optional(),
+});
+
+export type LegacyCreateRecipe = z.infer<typeof legacyCreateRecipeSchema>;
+
+/**
+ * Convert legacy API format to envelope format
+ */
+export function legacyToEnvelope(legacy: LegacyCreateRecipe): RecipeEnvelope {
+  return {
+    format: 'whatEat-recipe',
+    version: 1,
+    recipe: {
+      id: null,
+      title: legacy.title,
+      description: legacy.description ?? null,
+      servings: legacy.servings ?? null,
+      calories: legacy.calories ?? null,
+      prep_time_minutes: legacy.prep_time_minutes ?? null,
+      cook_time_minutes: legacy.cook_time_minutes ?? null,
+      tags: legacy.tags ?? [],
+      cuisine: legacy.cuisine ?? null,
+      dietary_labels: legacy.dietary_labels ?? [],
+      source: {
+        type: legacy.source_type ?? 'manual',
+        url: legacy.source_url ?? null,
+      },
+      ingredients: legacy.ingredients?.map((i) => ({ raw_text: i.raw_text })) ?? [],
+      steps: legacy.steps?.map((s) => ({ instruction: s.instruction })) ?? [],
+      media: legacy.media?.map((m) => ({
+        media_type: m.media_type,
+        url: m.url,
+        name: m.name ?? null,
+        is_generated: false,
+      })) ?? [],
+      metadata: {},
+    },
+  };
+}

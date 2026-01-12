@@ -1,28 +1,36 @@
 export type { Database, Json } from './supabase.js';
 export type { AuthenticatedRequest } from './express.js';
+import type { Json } from './supabase.js';
 
-// Media types
-export interface RecipeMedia {
+// ============================================================================
+// Recipe Types (Unified Schema)
+// ============================================================================
+
+export interface Recipe {
   id: string;
-  recipe_id: string;
-  position: number;
-  media_type: 'image' | 'video';
-  url: string;
-  name: string | null;
+  user_id: string | null; // null = global feed recipe
+  title: string;
+  description: string | null;
+  servings: number | null;
+  calories: number | null;
+  prep_time_minutes: number | null;
+  cook_time_minutes: number | null;
+  tags: string[];
+  cuisine: string | null;
+  dietary_labels: string[];
+  source_type: 'manual' | 'url' | 'image' | 'ai';
+  source_url: string | null;
+  source_recipe_id: string | null;
+  metadata: Json;
   created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  // Populated when fetching full recipe
+  ingredients?: RecipeIngredient[];
+  steps?: RecipeStep[];
+  media?: RecipeMedia[];
 }
 
-export interface FeedRecipeMedia {
-  id: string;
-  feed_recipe_id: string;
-  position: number;
-  media_type: 'image' | 'video';
-  url: string;
-  name: string | null;
-  created_at: string;
-}
-
-// Recipe types for API responses
 export interface RecipeIngredient {
   id: string;
   recipe_id: string;
@@ -31,6 +39,7 @@ export interface RecipeIngredient {
   quantity: number | null;
   unit: string | null;
   ingredient_name: string | null;
+  created_at: string;
 }
 
 export interface RecipeStep {
@@ -38,62 +47,38 @@ export interface RecipeStep {
   recipe_id: string;
   position: number;
   instruction: string;
-}
-
-export interface Recipe {
-  id: string;
-  user_id: string;
-  title: string;
-  description: string | null;
-  source_type: 'manual' | 'url' | 'image' | 'ai';
-  source_url: string | null;
-  source_feed_recipe_id: string | null;
-  image_path: string | null;
-  calories: number | null;
-  prep_time_minutes: number | null;
-  cook_time_minutes: number | null;
-  servings: number | null;
   created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-  ingredients?: RecipeIngredient[];
-  steps?: RecipeStep[];
-  media?: RecipeMedia[];
 }
 
-// Feed recipe types (global AI-generated recipes)
-export interface FeedRecipeIngredient {
+export interface RecipeMedia {
   id: string;
-  feed_recipe_id: string;
+  recipe_id: string;
   position: number;
-  raw_text: string;
-  quantity: number | null;
-  unit: string | null;
-  ingredient_name: string | null;
-}
-
-export interface FeedRecipeStep {
-  id: string;
-  feed_recipe_id: string;
-  position: number;
-  instruction: string;
-}
-
-export interface FeedRecipe {
-  id: string;
-  title: string;
-  description: string | null;
-  calories: number | null;
-  prep_time_minutes: number | null;
-  cook_time_minutes: number | null;
-  servings: number | null;
+  media_type: 'image' | 'video';
+  url: string;
+  storage_path: string | null;
+  name: string | null;
+  is_generated: boolean;
   created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-  ingredients?: FeedRecipeIngredient[];
-  steps?: FeedRecipeStep[];
-  media?: FeedRecipeMedia[];
 }
+
+// ============================================================================
+// Recipe Shares
+// ============================================================================
+
+export interface RecipeShare {
+  id: string;
+  recipe_id: string;
+  share_token: string;
+  created_by: string | null;
+  expires_at: string | null;
+  view_count: number;
+  created_at: string;
+}
+
+// ============================================================================
+// Import Jobs
+// ============================================================================
 
 export interface ImportJob {
   id: string;
@@ -109,14 +94,23 @@ export interface ImportJob {
   updated_at: string;
 }
 
+// ============================================================================
+// User Preferences
+// ============================================================================
+
 export interface UserPreferences {
   user_id: string;
   daily_ai_enabled: boolean;
   dietary_restrictions: string[];
   preferred_cuisines: string[];
+  excluded_ingredients: string[];
   created_at: string;
   updated_at: string;
 }
+
+// ============================================================================
+// Daily Suggestions
+// ============================================================================
 
 export interface DailySuggestion {
   id: string;
@@ -142,9 +136,28 @@ export interface SuggestedRecipeData {
   prep_time_minutes?: number;
   cook_time_minutes?: number;
   servings?: number;
+  calories?: number;
+  tags?: string[];
+  cuisine?: string;
+  dietary_labels?: string[];
 }
 
-// API response types
+// ============================================================================
+// Usage Counters
+// ============================================================================
+
+export interface UsageCounter {
+  id: string;
+  user_id: string;
+  date: string;
+  imports_count: number;
+  ai_generations_count: number;
+}
+
+// ============================================================================
+// API Response Types
+// ============================================================================
+
 export interface PaginatedResponse<T> {
   data: T[];
   pagination: {
@@ -161,7 +174,25 @@ export interface ApiError {
   details?: unknown;
 }
 
+// ============================================================================
+// Recipe List Item (for feed/list views)
+// ============================================================================
 
-
-
-
+export interface RecipeListItem {
+  id: string;
+  title: string;
+  description: string | null;
+  calories: number | null;
+  prep_time_minutes: number | null;
+  cook_time_minutes: number | null;
+  servings: number | null;
+  tags: string[];
+  cuisine: string | null;
+  source_type: 'manual' | 'url' | 'image' | 'ai';
+  created_at: string;
+  media: Array<{
+    media_type: 'image' | 'video';
+    url: string;
+    name: string | null;
+  }>;
+}
