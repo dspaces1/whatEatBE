@@ -12,6 +12,57 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      daily_recipe_runs: {
+        Row: {
+          id: string;
+          user_id: string;
+          trigger_source: string;
+          target_date: string;
+          status: string;
+          batch_id: string | null;
+          superseded_by: string | null;
+          created_at: string;
+          completed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          trigger_source: string;
+          target_date: string;
+          status?: string;
+          batch_id?: string | null;
+          superseded_by?: string | null;
+          created_at?: string;
+          completed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          trigger_source?: string;
+          target_date?: string;
+          status?: string;
+          batch_id?: string | null;
+          superseded_by?: string | null;
+          created_at?: string;
+          completed_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "daily_recipe_runs_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "daily_recipe_runs_superseded_by_fkey";
+            columns: ["superseded_by"];
+            isOneToOne: false;
+            referencedRelation: "daily_recipe_runs";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       daily_suggestions: {
         Row: {
           id: string;
@@ -20,6 +71,9 @@ export type Database = {
           generated_at: string;
           expires_at: string;
           saved_recipe_id: string | null;
+          run_id: string | null;
+          trigger_source: string;
+          rank: number | null;
         };
         Insert: {
           id?: string;
@@ -28,6 +82,9 @@ export type Database = {
           generated_at?: string;
           expires_at: string;
           saved_recipe_id?: string | null;
+          run_id?: string | null;
+          trigger_source?: string;
+          rank?: number | null;
         };
         Update: {
           id?: string;
@@ -36,6 +93,9 @@ export type Database = {
           generated_at?: string;
           expires_at?: string;
           saved_recipe_id?: string | null;
+          run_id?: string | null;
+          trigger_source?: string;
+          rank?: number | null;
         };
         Relationships: [
           {
@@ -51,6 +111,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "recipes";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "daily_suggestions_run_id_fkey";
+            columns: ["run_id"];
+            isOneToOne: false;
+            referencedRelation: "daily_recipe_runs";
+            referencedColumns: ["id"];
           }
         ];
       };
@@ -65,6 +132,8 @@ export type Database = {
           result_recipe_id: string | null;
           error_message: string | null;
           retries: number;
+          metadata: Json;
+          target_date: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -78,6 +147,8 @@ export type Database = {
           result_recipe_id?: string | null;
           error_message?: string | null;
           retries?: number;
+          metadata?: Json;
+          target_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -91,6 +162,8 @@ export type Database = {
           result_recipe_id?: string | null;
           error_message?: string | null;
           retries?: number;
+          metadata?: Json;
+          target_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -386,7 +459,6 @@ export type Database = {
       user_preferences: {
         Row: {
           user_id: string;
-          daily_ai_enabled: boolean;
           dietary_restrictions: string[];
           preferred_cuisines: string[];
           excluded_ingredients: string[];
@@ -395,7 +467,6 @@ export type Database = {
         };
         Insert: {
           user_id: string;
-          daily_ai_enabled?: boolean;
           dietary_restrictions?: string[];
           preferred_cuisines?: string[];
           excluded_ingredients?: string[];
@@ -404,7 +475,6 @@ export type Database = {
         };
         Update: {
           user_id?: string;
-          daily_ai_enabled?: boolean;
           dietary_restrictions?: string[];
           preferred_cuisines?: string[];
           excluded_ingredients?: string[];

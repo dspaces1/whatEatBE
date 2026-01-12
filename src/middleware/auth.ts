@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
+import { ForbiddenError } from '../utils/errors.js';
 
 export interface AuthenticatedRequest extends Request {
   userId: string;
@@ -64,6 +65,39 @@ export const requireAuth = async (
   }
 };
 
+const parseCsv = (value?: string): string[] =>
+  value
+    ? value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    : [];
+
+export const requireDailyGenerationAdmin = (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): void => {
+  const authReq = req as AuthenticatedRequest;
+  const allowedEmails = parseCsv(env.DAILY_GENERATION_ADMIN_EMAILS);
+  const allowedUserIds = parseCsv(env.DAILY_GENERATION_ADMIN_USER_IDS);
+
+  if (allowedEmails.length === 0 && allowedUserIds.length === 0) {
+    next(new ForbiddenError('Daily generation admin access not configured'));
+    return;
+  }
+
+  if (
+    allowedUserIds.includes(authReq.userId) ||
+    (authReq.userEmail && allowedEmails.includes(authReq.userEmail))
+  ) {
+    next();
+    return;
+  }
+
+  next(new ForbiddenError('Admin access required'));
+};
+
 /**
  * Optional authentication middleware
  * Attaches user info if valid token is present, but allows request to proceed without auth
@@ -100,7 +134,6 @@ export const optionalAuth = async (
     next();
   }
 };
-
 
 
 

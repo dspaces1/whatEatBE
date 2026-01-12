@@ -61,7 +61,10 @@ export class AIService {
   /**
    * Generate a recipe based on user preferences
    */
-  async generateRecipe(preferences?: Partial<UserPreferences>): Promise<RecipeEnvelope | null> {
+  async generateRecipe(
+    preferences?: Partial<UserPreferences>,
+    theme?: string
+  ): Promise<RecipeEnvelope | null> {
     if (!this.openai) {
       logger.warn('OpenAI API key not configured');
       return null;
@@ -69,7 +72,7 @@ export class AIService {
 
     try {
       const systemPrompt = this.buildSystemPrompt();
-      const userPrompt = this.buildUserPrompt(preferences);
+      const userPrompt = this.buildUserPrompt(preferences, theme);
 
       logger.info({ preferences }, 'Generating recipe with AI');
 
@@ -135,6 +138,61 @@ export class AIService {
 
       // Small delay between generations to avoid rate limits
       if (i < count - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+
+    return recipes;
+  }
+
+  /**
+   * Generate multiple personalized recipes for daily suggestions
+   */
+  async generateDailySuggestions(
+    preferences: Partial<UserPreferences>,
+    count: number = 3
+  ): Promise<RecipeEnvelope[]> {
+    const recipes: RecipeEnvelope[] = [];
+    const themes = this.getDailyThemes();
+
+    for (let i = 0; i < count; i++) {
+      const theme = themes[i % themes.length];
+      const recipe = await this.generateRecipe(preferences, theme);
+      if (recipe) {
+        recipes.push(recipe);
+      }
+
+      if (i < count - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+
+    return recipes;
+  }
+
+  /**
+   * Generate a shared daily meal plan (2 breakfast, 2 lunch, 2 dinner, 2 dessert)
+   */
+  async generateMealPlan(countPerMeal: number = 2): Promise<RecipeEnvelope[]> {
+    const recipes: RecipeEnvelope[] = [];
+    const mealTypes = ['breakfast', 'lunch', 'dinner', 'dessert'] as const;
+    const plan: string[] = [];
+
+    for (const mealType of mealTypes) {
+      for (let i = 0; i < countPerMeal; i++) {
+        plan.push(mealType);
+      }
+    }
+
+    for (let i = 0; i < plan.length; i++) {
+      const mealType = plan[i];
+      const recipe = await this.generateRecipe(undefined, mealType);
+      if (recipe) {
+        this.applyMealType(recipe, mealType);
+        recipes.push(recipe);
+      }
+
+      if (i < plan.length - 1) {
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
@@ -231,7 +289,7 @@ Output a JSON object with the recipe details.`;
   /**
    * Build the user prompt based on preferences
    */
-  private buildUserPrompt(preferences?: Partial<UserPreferences>): string {
+  private buildUserPrompt(preferences?: Partial<UserPreferences>, theme?: string): string {
     const parts: string[] = ['Generate a recipe'];
 
     if (preferences?.dietary_restrictions?.length) {
@@ -247,9 +305,29 @@ Output a JSON object with the recipe details.`;
       parts.push(`without ${preferences.excluded_ingredients.join(', ')}`);
     }
 
+    if (theme) {
+      const normalized = theme.toLowerCase();
+      if (['breakfast', 'lunch', 'dinner', 'dessert'].includes(normalized)) {
+        parts.push(`for ${normalized}`);
+      } else {
+        parts.push(`with a ${theme} theme`);
+      }
+    }
+
     parts.push('. Make it unique and interesting with a creative title.');
 
     return parts.join(' ');
+  }
+
+  private applyMealType(envelope: RecipeEnvelope, mealType: string): void {
+    const normalized = mealType.toLowerCase();
+    const tags = new Set(envelope.recipe.tags ?? []);
+    tags.add(normalized);
+    envelope.recipe.tags = Array.from(tags);
+    envelope.recipe.metadata = {
+      ...(envelope.recipe.metadata ?? {}),
+      meal_type: normalized,
+    };
   }
 
   /**
@@ -319,18 +397,24 @@ Output a JSON object with the recipe details.`;
    */
   async storeSuggestions(
     userId: string,
-    suggestions: RecipeEnvelope[]
+    suggestions: RecipeEnvelope[],
+    options?: { runId?: string | null; triggerSource?: 'manual' | 'scheduled' }
   ): Promise<void> {
     const expiresAt = new Date();
     expiresAt.setHours(23, 59, 59, 999);
+    const runId = options?.runId ?? null;
+    const triggerSource = options?.triggerSource ?? 'scheduled';
 
     const { error } = await supabaseAdmin
       .from('daily_suggestions')
       .insert(
-        suggestions.map((envelope) => ({
+        suggestions.map((envelope, index) => ({
           user_id: userId,
           recipe_data: envelope.recipe as unknown as Json,
           expires_at: expiresAt.toISOString(),
+          run_id: runId,
+          trigger_source: triggerSource,
+          rank: index + 1,
         }))
       );
 
@@ -346,40 +430,51 @@ Output a JSON object with the recipe details.`;
   async incrementUsageCounter(userId: string): Promise<number> {
     const today = new Date().toISOString().split('T')[0];
 
-    const { data, error } = await supabaseAdmin
+    const { data: existing, error: fetchError } = await supabaseAdmin
       .from('usage_counters')
-      .upsert(
-        {
-          user_id: userId,
-          date: today,
-          ai_generations_count: 1,
-        },
-        {
-          onConflict: 'user_id,date',
-        }
-      )
-      .select()
-      .single();
+      .select('id, ai_generations_count')
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle();
 
-    if (error) {
-      logger.error({ userId, error }, 'Failed to update usage counter');
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      logger.error({ userId, error: fetchError }, 'Failed to read usage counter');
       return 0;
     }
 
-    // If it was an update (count > 1), increment
-    if (data && data.ai_generations_count > 1) {
-      const { data: updated } = await supabaseAdmin
+    if (!existing) {
+      const { data, error } = await supabaseAdmin
         .from('usage_counters')
-        .update({ ai_generations_count: data.ai_generations_count + 1 })
-        .eq('user_id', userId)
-        .eq('date', today)
+        .insert({
+          user_id: userId,
+          date: today,
+          ai_generations_count: 1,
+        })
         .select()
         .single();
 
-      return updated?.ai_generations_count ?? 0;
+      if (error) {
+        logger.error({ userId, error }, 'Failed to create usage counter');
+        return 0;
+      }
+
+      return data?.ai_generations_count ?? 1;
     }
 
-    return data?.ai_generations_count ?? 1;
+    const nextCount = (existing.ai_generations_count ?? 0) + 1;
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('usage_counters')
+      .update({ ai_generations_count: nextCount })
+      .eq('id', existing.id)
+      .select()
+      .single();
+
+    if (updateError) {
+      logger.error({ userId, error: updateError }, 'Failed to update usage counter');
+      return nextCount;
+    }
+
+    return updated?.ai_generations_count ?? nextCount;
   }
 
   /**

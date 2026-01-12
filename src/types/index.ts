@@ -100,7 +100,6 @@ export interface ImportJob {
 
 export interface UserPreferences {
   user_id: string;
-  daily_ai_enabled: boolean;
   dietary_restrictions: string[];
   preferred_cuisines: string[];
   excluded_ingredients: string[];
@@ -119,6 +118,9 @@ export interface DailySuggestion {
   generated_at: string;
   expires_at: string;
   saved_recipe_id: string | null;
+  run_id?: string | null;
+  trigger_source?: 'manual' | 'scheduled';
+  rank?: number | null;
 }
 
 export interface SuggestedRecipeData {
@@ -140,6 +142,13 @@ export interface SuggestedRecipeData {
   tags?: string[];
   cuisine?: string;
   dietary_labels?: string[];
+  media?: Array<{
+    media_type: 'image' | 'video';
+    url: string;
+    name?: string | null;
+    is_generated?: boolean;
+  }>;
+  metadata?: Record<string, unknown>;
 }
 
 // ============================================================================

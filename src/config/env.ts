@@ -21,6 +21,10 @@ const envSchema = z.object({
   // Rate limits
   DAILY_AI_GENERATION_LIMIT: z.string().default('10').transform(Number),
   DAILY_IMPORT_LIMIT: z.string().default('20').transform(Number),
+
+  // Admin controls
+  DAILY_GENERATION_ADMIN_EMAILS: z.string().optional(),
+  DAILY_GENERATION_ADMIN_USER_IDS: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

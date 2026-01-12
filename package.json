@@ -6,7 +6,8 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "jobs:daily": "bash scripts/daily-generation.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
