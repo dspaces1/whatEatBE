@@ -12,16 +12,16 @@ const envSchema = z.object({
 
   // OpenAI
   OPENAI_API_KEY: z.string().min(1).optional(),
-  OPENAI_MODEL: z.string().default('gpt-5'),
-  OPENAI_MAX_COMPLETION_TOKENS: z.string().default('2500').transform(Number),
-  DALLE_MODEL: z.string().default('dall-e-3'),
+  OPENAI_MODEL: z.string(),
+  OPENAI_MAX_COMPLETION_TOKENS: z.string().transform(Number),
+  DALLE_MODEL: z.string(),
 
   // Storage
-  SUPABASE_STORAGE_BUCKET: z.string().default('recipe-images'),
+  SUPABASE_STORAGE_BUCKET: z.string(),
 
   // Rate limits
-  DAILY_AI_GENERATION_LIMIT: z.string().default('10').transform(Number),
-  DAILY_IMPORT_LIMIT: z.string().default('20').transform(Number),
+  DAILY_AI_GENERATION_LIMIT: z.string().transform(Number),
+  DAILY_IMPORT_LIMIT: z.string().transform(Number),
 
   // Admin controls
   DAILY_GENERATION_ADMIN_EMAILS: z.string().optional(),
