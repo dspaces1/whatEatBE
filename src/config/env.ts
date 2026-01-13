@@ -13,6 +13,7 @@ const envSchema = z.object({
   // OpenAI
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.string().default('gpt-5'),
+  OPENAI_MAX_COMPLETION_TOKENS: z.string().default('2500').transform(Number),
   DALLE_MODEL: z.string().default('dall-e-3'),
 
   // Storage

@@ -88,14 +88,14 @@ export type RecipeEnvelopeData = RecipeEnvelope['recipe'];
 
 export const aiRecipeOutputSchema = z.object({
   title: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
-  servings: z.number().int().positive().optional(),
-  calories: z.number().int().positive().optional(),
-  prep_time_minutes: z.number().int().positive().optional(),
-  cook_time_minutes: z.number().int().positive().optional(),
-  tags: z.array(z.string()).optional(),
-  cuisine: z.string().optional(),
-  dietary_labels: z.array(z.string()).optional(),
+  description: z.string().max(2000).nullable().optional(),
+  servings: z.number().int().positive().nullable().optional(),
+  calories: z.number().int().positive().nullable().optional(),
+  prep_time_minutes: z.number().int().positive().nullable().optional(),
+  cook_time_minutes: z.number().int().positive().nullable().optional(),
+  tags: z.array(z.string()).nullable().optional(),
+  cuisine: z.string().nullable().optional(),
+  dietary_labels: z.array(z.string()).nullable().optional(),
   ingredients: z.array(z.object({ raw_text: z.string() })),
   steps: z.array(z.object({ instruction: z.string() })),
 });

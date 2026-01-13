@@ -30,8 +30,8 @@ interface SharedGenerationResult {
   suggestions: RecipeEnvelope[];
 }
 
-const DEFAULT_COUNT = 3;
-const DEFAULT_COUNT_PER_MEAL = 2;
+const DEFAULT_COUNT = 1; // todo change back to 3
+const DEFAULT_COUNT_PER_MEAL = 1; // todo change back to 2
 
 export class DailyGenerationService {
   async generateForUser(userId: string, options: GenerateOptions = {}): Promise<GenerationResult> {

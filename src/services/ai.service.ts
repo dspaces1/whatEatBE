@@ -20,20 +20,21 @@ const AI_RECIPE_JSON_SCHEMA = {
   type: 'object',
   properties: {
     title: { type: 'string' },
-    description: { type: 'string' },
-    servings: { type: 'integer' },
-    calories: { type: 'integer' },
-    prep_time_minutes: { type: 'integer' },
-    cook_time_minutes: { type: 'integer' },
-    tags: { type: 'array', items: { type: 'string' } },
-    cuisine: { type: 'string' },
-    dietary_labels: { type: 'array', items: { type: 'string' } },
+    description: { type: ['string', 'null'] },
+    servings: { type: ['integer', 'null'] },
+    calories: { type: ['integer', 'null'] },
+    prep_time_minutes: { type: ['integer', 'null'] },
+    cook_time_minutes: { type: ['integer', 'null'] },
+    tags: { type: ['array', 'null'], items: { type: 'string' } },
+    cuisine: { type: ['string', 'null'] },
+    dietary_labels: { type: ['array', 'null'], items: { type: 'string' } },
     ingredients: {
       type: 'array',
       items: {
         type: 'object',
         properties: { raw_text: { type: 'string' } },
         required: ['raw_text'],
+        additionalProperties: false,
       },
     },
     steps: {
@@ -42,10 +43,23 @@ const AI_RECIPE_JSON_SCHEMA = {
         type: 'object',
         properties: { instruction: { type: 'string' } },
         required: ['instruction'],
+        additionalProperties: false,
       },
     },
   },
-  required: ['title', 'ingredients', 'steps'],
+  required: [
+    'title',
+    'description',
+    'servings',
+    'calories',
+    'prep_time_minutes',
+    'cook_time_minutes',
+    'tags',
+    'cuisine',
+    'dietary_labels',
+    'ingredients',
+    'steps',
+  ],
   additionalProperties: false,
 } as const;
 
@@ -54,7 +68,7 @@ export class AIService {
 
   constructor() {
     if (env.OPENAI_API_KEY) {
-      this.openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+      this.openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, maxRetries: 3 });
     }
   }
 
@@ -90,13 +104,17 @@ export class AIService {
             schema: AI_RECIPE_JSON_SCHEMA,
           },
         },
-        temperature: 0.8,
-        max_tokens: 2000,
+        temperature: 1,
+        max_completion_tokens: env.OPENAI_MAX_COMPLETION_TOKENS,
       });
 
-      const content = response.choices[0]?.message?.content;
+      const choice = response.choices[0];
+      const content = choice?.message?.content ?? '';
       if (!content) {
-        logger.error('AI returned empty response');
+        logger.error({
+          finishReason: choice?.finish_reason,
+          refusal: choice?.message?.refusal,
+        }, 'AI returned empty response');
         return null;
       }
 
@@ -107,8 +125,8 @@ export class AIService {
       // Generate a hero image
       const image = await imageService.generateRecipeImage(
         validated.title,
-        validated.description,
-        validated.cuisine
+        validated.description ?? undefined,
+        validated.cuisine ?? undefined
       );
 
       // Wrap in envelope format
@@ -227,19 +245,26 @@ export class AIService {
           },
         },
         temperature: 0.9,
-        max_tokens: 2000,
+        max_completion_tokens: env.OPENAI_MAX_COMPLETION_TOKENS,
       });
 
-      const content = response.choices[0]?.message?.content;
-      if (!content) return null;
+      const choice = response.choices[0];
+      const content = choice?.message?.content ?? '';
+      if (!content) {
+        logger.error({
+          finishReason: choice?.finish_reason,
+          refusal: choice?.message?.refusal,
+        }, 'AI returned empty response');
+        return null;
+      }
 
       const parsed = JSON.parse(content);
       const validated = aiRecipeOutputSchema.parse(parsed);
 
       const image = await imageService.generateRecipeImage(
         validated.title,
-        validated.description,
-        validated.cuisine
+        validated.description ?? undefined,
+        validated.cuisine ?? undefined
       );
 
       return wrapAIOutput(validated, image?.url);

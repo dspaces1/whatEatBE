@@ -28,33 +28,65 @@ export class ImageService {
     try {
       // Build a prompt that generates appetizing food photography
       const prompt = this.buildImagePrompt(title, description, cuisine);
+      const model = env.DALLE_MODEL;
 
-      logger.info({ title, prompt }, 'Generating recipe image with DALL-E');
+      logger.info({ title, prompt, model }, 'Generating recipe image with DALL-E');
 
-      const response = await this.openai.images.generate({
-        model: env.DALLE_MODEL,
+      const request: {
+        model: string;
+        prompt: string;
+        n: number;
+        size: '1024x1024';
+        quality?: 'standard' | 'hd';
+        style?: 'natural' | 'vivid';
+      } = {
+        model,
         prompt,
         n: 1,
         size: '1024x1024',
-        quality: 'standard',
-        style: 'natural',
-      });
+      };
 
-      const imageUrl = response.data?.[0]?.url;
-      if (!imageUrl) {
-        logger.error('DALL-E returned no image URL');
-        return null;
+      if (model === 'dall-e-3') {
+        request.quality = 'standard';
+        request.style = 'natural';
       }
 
-      // Upload to Supabase Storage for persistence
-      const storagePath = await this.uploadToStorage(imageUrl, title);
+      const response = await this.openai.images.generate(request);
 
-      return {
-        url: storagePath ? this.getPublicUrl(storagePath) : imageUrl,
-        storagePath,
-      };
+      const image = response.data?.[0];
+      const imageUrl = image?.url ?? null;
+      const imageBase64 = image?.b64_json ?? null;
+
+      if (imageUrl) {
+        const storagePath = await this.uploadToStorage(imageUrl, title);
+        return {
+          url: storagePath ? this.getPublicUrl(storagePath) : imageUrl,
+          storagePath,
+        };
+      }
+
+      if (imageBase64) {
+        const buffer = Buffer.from(imageBase64, 'base64');
+        const storagePath = await this.uploadBufferToStorage(buffer, title);
+        if (!storagePath) {
+          logger.error('Failed to upload base64 image');
+          return null;
+        }
+
+        return {
+          url: this.getPublicUrl(storagePath),
+          storagePath,
+        };
+      }
+
+      logger.error({
+        model,
+        hasUrl: Boolean(imageUrl),
+        hasB64: Boolean(imageBase64),
+      }, 'Image generation returned no image data');
+      return null;
     } catch (error) {
-      logger.error({ error, title }, 'Failed to generate recipe image');
+      logger.error({ error, title, model: env.DALLE_MODEL }, 'Failed to generate recipe image');
       return null;
     }
   }
@@ -86,27 +118,34 @@ export class ImageService {
       }
 
       const buffer = await response.arrayBuffer();
-      const fileName = this.generateFileName(title);
-      const filePath = `generated/${fileName}`;
-
-      const { error } = await supabaseAdmin.storage
-        .from(env.SUPABASE_STORAGE_BUCKET)
-        .upload(filePath, buffer, {
-          contentType: 'image/png',
-          cacheControl: '31536000', // 1 year cache
-        });
-
-      if (error) {
-        logger.error({ error, filePath }, 'Failed to upload image to storage');
-        return null;
-      }
-
-      logger.info({ filePath }, 'Uploaded recipe image to storage');
-      return filePath;
+      return this.uploadBufferToStorage(buffer, title);
     } catch (error) {
       logger.error({ error }, 'Failed to upload image to storage');
       return null;
     }
+  }
+
+  private async uploadBufferToStorage(
+    buffer: ArrayBuffer | Buffer,
+    title: string
+  ): Promise<string | null> {
+    const fileName = this.generateFileName(title);
+    const filePath = `generated/${fileName}`;
+
+    const { error } = await supabaseAdmin.storage
+      .from(env.SUPABASE_STORAGE_BUCKET)
+      .upload(filePath, buffer, {
+        contentType: 'image/png',
+        cacheControl: '31536000',
+      });
+
+    if (error) {
+      logger.error({ error, filePath }, 'Failed to upload image to storage');
+      return null;
+    }
+
+    logger.info({ filePath }, 'Uploaded recipe image to storage');
+    return filePath;
   }
 
   /**
