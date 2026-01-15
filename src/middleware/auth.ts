@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { createRemoteJWKSet, jwtVerify, errors, type JWTPayload } from 'jose';
 import { env } from '../config/env.js';
 import { ForbiddenError } from '../utils/errors.js';
 
@@ -8,20 +8,26 @@ export interface AuthenticatedRequest extends Request {
   userEmail?: string;
 }
 
-interface SupabaseJwtPayload {
+interface SupabaseJwtPayload extends JWTPayload {
   sub: string;
   email?: string;
-  aud: string;
-  role: string;
-  iss: string;
-  iat: number;
-  exp: number;
-  app_metadata?: {
-    provider?: string;
-    providers?: string[];
-  };
-  user_metadata?: Record<string, unknown>;
 }
+
+const normalizeUrl = (value: string): string => (
+  value.endsWith('/') ? value.slice(0, -1) : value
+);
+
+const supabaseUrl = normalizeUrl(env.SUPABASE_URL);
+const issuer = `${supabaseUrl}/auth/v1`;
+const jwks = createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/keys`));
+
+const verifySupabaseToken = async (token: string): Promise<SupabaseJwtPayload> => {
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer,
+    audience: 'authenticated',
+  });
+  return payload as SupabaseJwtPayload;
+};
 
 export const requireAuth = async (
   req: Request,
@@ -38,30 +44,29 @@ export const requireAuth = async (
 
     const token = authHeader.slice(7);
 
-    // Verify the Supabase JWT
-    const payload = jwt.verify(token, env.SUPABASE_JWT_SECRET) as SupabaseJwtPayload;
-
-    // Validate it's an authenticated user token
-    if (payload.aud !== 'authenticated') {
-      res.status(401).json({ error: 'Invalid token audience' });
+    const payload = await verifySupabaseToken(token);
+    if (!payload.sub) {
+      res.status(401).json({ error: 'Invalid token' });
       return;
     }
 
     // Attach user info to request
     (req as AuthenticatedRequest).userId = payload.sub;
-    (req as AuthenticatedRequest).userEmail = payload.email;
+    (req as AuthenticatedRequest).userEmail =
+      typeof payload.email === 'string' ? payload.email : undefined;
 
     next();
   } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
+    if (error instanceof errors.JWTExpired) {
       res.status(401).json({ error: 'Token expired' });
       return;
     }
-    if (error instanceof jwt.JsonWebTokenError) {
-      res.status(401).json({ error: 'Invalid token' });
+    if (error instanceof errors.JWTClaimValidationFailed && error.claim === 'aud') {
+      res.status(401).json({ error: 'Invalid token audience' });
       return;
     }
-    next(error);
+    res.status(401).json({ error: 'Invalid token' });
+    return;
   }
 };
 
@@ -118,14 +123,11 @@ export const optionalAuth = async (
 
     const token = authHeader.slice(7);
 
-    // Verify the Supabase JWT
-    const payload = jwt.verify(token, env.SUPABASE_JWT_SECRET) as SupabaseJwtPayload;
-
-    // Validate it's an authenticated user token
-    if (payload.aud === 'authenticated') {
-      // Attach user info to request
+    const payload = await verifySupabaseToken(token);
+    if (payload.sub) {
       (req as AuthenticatedRequest).userId = payload.sub;
-      (req as AuthenticatedRequest).userEmail = payload.email;
+      (req as AuthenticatedRequest).userEmail =
+        typeof payload.email === 'string' ? payload.email : undefined;
     }
 
     next();
@@ -134,7 +136,6 @@ export const optionalAuth = async (
     next();
   }
 };
-
 
 
 
