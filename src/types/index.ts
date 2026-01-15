@@ -108,47 +108,34 @@ export interface UserPreferences {
 }
 
 // ============================================================================
-// Daily Suggestions
+// Daily Meal Plans
 // ============================================================================
 
-export interface DailySuggestion {
+export interface DailyMealPlan {
   id: string;
-  user_id: string;
-  recipe_data: SuggestedRecipeData;
-  generated_at: string;
-  expires_at: string;
-  saved_recipe_id: string | null;
-  run_id?: string | null;
-  trigger_source?: 'manual' | 'scheduled';
-  rank?: number | null;
+  plan_date: string;
+  trigger_source: 'manual' | 'scheduled';
+  status: 'processing' | 'completed' | 'failed';
+  created_at: string;
+  completed_at: string | null;
 }
 
-export interface SuggestedRecipeData {
-  title: string;
-  description?: string;
-  ingredients: Array<{
-    raw_text: string;
-    quantity?: number;
-    unit?: string;
-    ingredient_name?: string;
-  }>;
-  steps: Array<{
-    instruction: string;
-  }>;
-  prep_time_minutes?: number;
-  cook_time_minutes?: number;
-  servings?: number;
-  calories?: number;
-  tags?: string[];
-  cuisine?: string;
-  dietary_labels?: string[];
-  media?: Array<{
-    media_type: 'image' | 'video';
-    url: string;
-    name?: string | null;
-    is_generated?: boolean;
-  }>;
-  metadata?: Record<string, unknown>;
+export interface DailyMealPlanItem {
+  id: string;
+  plan_id: string;
+  recipe_id: string;
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'dessert';
+  rank: number;
+  created_at: string;
+}
+
+export interface RecipeSave {
+  id: string;
+  user_id: string;
+  recipe_id: string;
+  source_recipe_id: string | null;
+  daily_plan_item_id: string | null;
+  created_at: string;
 }
 
 // ============================================================================

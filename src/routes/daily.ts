@@ -4,7 +4,9 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { requireAuth, requireDailyGenerationAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { dailyGenerationService } from '../services/daily-generation.service.js';
-import type { Json } from '../types/index.js';
+import { recipeService } from '../services/recipe.service.js';
+import { dbToEnvelope, type RecipeEnvelope } from '../schemas/envelope.js';
+import type { Recipe, RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
 const router = Router();
 
@@ -19,48 +21,30 @@ const refreshSchema = z.object({
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'dessert'] as const;
 type MealType = typeof MEAL_TYPES[number];
 
-type SuggestionRecipeData = {
-  title?: string;
-  tags?: string[];
-  metadata?: Record<string, unknown>;
-};
+type SuggestionRecipeData = RecipeEnvelope['recipe'];
 
 type SuggestionRow = {
   id: string;
+  user_id?: string;
   recipe_data: SuggestionRecipeData;
   generated_at: string;
+  expires_at?: string;
   saved_recipe_id?: string | null;
   run_id?: string | null;
   trigger_source?: string;
   rank?: number | null;
 };
 
+type PlanItemRow = {
+  id: string;
+  plan_id: string;
+  recipe_id: string;
+  meal_type: MealType;
+  rank: number;
+  created_at: string;
+};
+
 const MAX_REFRESH_POOL = 500;
-
-const normalizeMealType = (value: unknown): MealType | null => {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase();
-  return (MEAL_TYPES as readonly string[]).includes(normalized)
-    ? (normalized as MealType)
-    : null;
-};
-
-const getMealType = (recipe: SuggestionRecipeData): MealType | null => {
-  const metadataMealType = normalizeMealType(recipe.metadata?.meal_type);
-  if (metadataMealType) {
-    return metadataMealType;
-  }
-
-  const tags = recipe.tags ?? [];
-  for (const tag of tags) {
-    const normalized = normalizeMealType(tag);
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return null;
-};
 
 const pickRandom = <T,>(items: T[], count: number): T[] => {
   if (items.length <= count) {
@@ -76,6 +60,80 @@ const pickRandom = <T,>(items: T[], count: number): T[] => {
   return copy.slice(0, count);
 };
 
+const buildRecipeDataById = async (
+  recipeIds: string[]
+): Promise<Map<string, SuggestionRecipeData>> => {
+  const dataById = new Map<string, SuggestionRecipeData>();
+  if (recipeIds.length === 0) {
+    return dataById;
+  }
+
+  const { data: recipes, error: recipeError } = await supabaseAdmin
+    .from('recipes')
+    .select('*')
+    .in('id', recipeIds)
+    .is('deleted_at', null);
+
+  if (recipeError) {
+    throw new BadRequestError('Failed to fetch recipes');
+  }
+
+  const [
+    { data: ingredients },
+    { data: steps },
+    { data: media },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('recipe_ingredients')
+      .select('*')
+      .in('recipe_id', recipeIds)
+      .order('position'),
+    supabaseAdmin
+      .from('recipe_steps')
+      .select('*')
+      .in('recipe_id', recipeIds)
+      .order('position'),
+    supabaseAdmin
+      .from('recipe_media')
+      .select('*')
+      .in('recipe_id', recipeIds)
+      .order('position'),
+  ]);
+
+  const ingredientsByRecipeId = new Map<string, RecipeIngredient[]>();
+  for (const ingredient of ingredients ?? []) {
+    const existing = ingredientsByRecipeId.get(ingredient.recipe_id) ?? [];
+    existing.push(ingredient as RecipeIngredient);
+    ingredientsByRecipeId.set(ingredient.recipe_id, existing);
+  }
+
+  const stepsByRecipeId = new Map<string, RecipeStep[]>();
+  for (const step of steps ?? []) {
+    const existing = stepsByRecipeId.get(step.recipe_id) ?? [];
+    existing.push(step as RecipeStep);
+    stepsByRecipeId.set(step.recipe_id, existing);
+  }
+
+  const mediaByRecipeId = new Map<string, RecipeMedia[]>();
+  for (const item of media ?? []) {
+    const existing = mediaByRecipeId.get(item.recipe_id) ?? [];
+    existing.push(item as RecipeMedia);
+    mediaByRecipeId.set(item.recipe_id, existing);
+  }
+
+  for (const recipe of recipes ?? []) {
+    const envelope = dbToEnvelope(
+      recipe as Recipe,
+      ingredientsByRecipeId.get(recipe.id) ?? [],
+      stepsByRecipeId.get(recipe.id) ?? [],
+      mediaByRecipeId.get(recipe.id) ?? []
+    );
+    dataById.set(recipe.id, envelope.recipe);
+  }
+
+  return dataById;
+};
+
 // Get today's daily suggestions
 router.get('/suggestions', requireAuth, async (req, res: Response, next) => {
   try {
@@ -84,44 +142,81 @@ router.get('/suggestions', requireAuth, async (req, res: Response, next) => {
     today.setHours(0, 0, 0, 0);
     const targetDate = today.toISOString().split('T')[0];
 
-    const { data: latestRun, error: runError } = await supabaseAdmin
-      .from('daily_recipe_runs')
+    const { data: latestPlan, error: planError } = await supabaseAdmin
+      .from('daily_meal_plans')
       .select('id, status, trigger_source, created_at')
-      .eq('user_id', authReq.userId)
-      .eq('target_date', targetDate)
+      .eq('plan_date', targetDate)
       .eq('status', 'completed')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (runError && runError.code !== 'PGRST116') {
-      throw new BadRequestError('Failed to fetch daily run');
+    if (planError && planError.code !== 'PGRST116') {
+      throw new BadRequestError('Failed to fetch daily plan');
     }
 
-    let suggestionsQuery = supabaseAdmin
-      .from('daily_suggestions')
-      .select('*')
-      .eq('user_id', authReq.userId)
-      .is('saved_recipe_id', null);
-
-    if (latestRun?.id) {
-      suggestionsQuery = suggestionsQuery
-        .eq('run_id', latestRun.id)
-        .order('rank', { ascending: true })
-        .order('generated_at', { ascending: false });
-    } else {
-      suggestionsQuery = suggestionsQuery
-        .gte('generated_at', today.toISOString())
-        .order('generated_at', { ascending: false });
+    if (!latestPlan) {
+      res.json({ suggestions: [], run: null });
+      return;
     }
 
-    const { data: suggestions, error } = await suggestionsQuery;
+    const { data: planItems, error: planItemsError } = await supabaseAdmin
+      .from('daily_meal_plan_items')
+      .select('id, recipe_id, meal_type, rank')
+      .eq('plan_id', latestPlan.id)
+      .order('rank', { ascending: true });
 
-    if (error) {
+    if (planItemsError) {
       throw new BadRequestError('Failed to fetch suggestions');
     }
 
-    res.json({ suggestions: suggestions ?? [], run: latestRun ?? null });
+    const itemIds = (planItems ?? []).map((item) => item.id);
+    const recipeIds = (planItems ?? []).map((item) => item.recipe_id);
+    const recipeDataById = await buildRecipeDataById(recipeIds);
+
+    const savedByItemId = new Map<string, string>();
+    if (itemIds.length > 0) {
+      const { data: saves, error: savesError } = await supabaseAdmin
+        .from('recipe_saves')
+        .select('daily_plan_item_id, recipe_id')
+        .eq('user_id', authReq.userId)
+        .in('daily_plan_item_id', itemIds);
+
+      if (savesError) {
+        throw new BadRequestError('Failed to fetch saved suggestions');
+      }
+
+      for (const save of saves ?? []) {
+        if (save.daily_plan_item_id) {
+          savedByItemId.set(save.daily_plan_item_id, save.recipe_id);
+        }
+      }
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setHours(23, 59, 59, 999);
+
+    const suggestions: SuggestionRow[] = [];
+    for (const item of planItems ?? []) {
+      const recipeData = recipeDataById.get(item.recipe_id);
+      if (!recipeData) {
+        throw new BadRequestError('Failed to resolve suggestion recipes');
+      }
+
+      suggestions.push({
+        id: item.id,
+        user_id: authReq.userId,
+        recipe_data: recipeData,
+        generated_at: latestPlan.created_at,
+        expires_at: expiresAt.toISOString(),
+        saved_recipe_id: savedByItemId.get(item.id) ?? null,
+        run_id: latestPlan.id,
+        trigger_source: latestPlan.trigger_source,
+        rank: item.rank,
+      });
+    }
+
+    res.json({ suggestions, run: latestPlan });
   } catch (err) {
     next(err);
   }
@@ -134,18 +229,35 @@ router.get('/refresh', requireAuth, async (req, res: Response, next) => {
     const { count_per_meal: countPerMeal } = refreshSchema.parse(req.query);
 
     const { data, error } = await supabaseAdmin
-      .from('daily_suggestions')
-      .select('id, recipe_data, generated_at, saved_recipe_id, run_id, trigger_source, rank')
-      .eq('user_id', authReq.userId)
-      .is('saved_recipe_id', null)
-      .order('generated_at', { ascending: false })
+      .from('daily_meal_plan_items')
+      .select('id, plan_id, recipe_id, meal_type, rank, created_at')
+      .order('created_at', { ascending: false })
       .limit(MAX_REFRESH_POOL);
 
     if (error) {
       throw new BadRequestError('Failed to fetch historical suggestions');
     }
 
-    const buckets: Record<MealType, SuggestionRow[]> = {
+    const savedItemIds = new Set<string>();
+    if (data && data.length > 0) {
+      const { data: saves, error: savesError } = await supabaseAdmin
+        .from('recipe_saves')
+        .select('daily_plan_item_id')
+        .eq('user_id', authReq.userId)
+        .in('daily_plan_item_id', data.map((item) => item.id));
+
+      if (savesError) {
+        throw new BadRequestError('Failed to fetch saved suggestions');
+      }
+
+      for (const save of saves ?? []) {
+        if (save.daily_plan_item_id) {
+          savedItemIds.add(save.daily_plan_item_id);
+        }
+      }
+    }
+
+    const buckets: Record<MealType, PlanItemRow[]> = {
       breakfast: [],
       lunch: [],
       dinner: [],
@@ -153,18 +265,73 @@ router.get('/refresh', requireAuth, async (req, res: Response, next) => {
     };
 
     for (const row of data ?? []) {
-      const suggestion = row as SuggestionRow;
-      const mealType = getMealType(suggestion.recipe_data);
-      if (mealType) {
-        buckets[mealType].push(suggestion);
+      const item = row as PlanItemRow;
+      if (savedItemIds.has(item.id)) {
+        continue;
       }
+      buckets[item.meal_type].push(item);
     }
 
-    const suggestions = {
+    const selections = {
       breakfast: pickRandom(buckets.breakfast, countPerMeal),
       lunch: pickRandom(buckets.lunch, countPerMeal),
       dinner: pickRandom(buckets.dinner, countPerMeal),
       dessert: pickRandom(buckets.dessert, countPerMeal),
+    };
+
+    const selectedItems = [
+      ...selections.breakfast,
+      ...selections.lunch,
+      ...selections.dinner,
+      ...selections.dessert,
+    ];
+
+    const recipeIds = selectedItems.map((item) => item.recipe_id);
+    const recipeDataById = await buildRecipeDataById(recipeIds);
+
+    const planIds = Array.from(new Set(selectedItems.map((item) => item.plan_id)));
+    const planById = new Map<string, { trigger_source: string; created_at: string }>();
+    if (planIds.length > 0) {
+      const { data: plans, error: planError } = await supabaseAdmin
+        .from('daily_meal_plans')
+        .select('id, trigger_source, created_at')
+        .in('id', planIds);
+
+      if (planError) {
+        throw new BadRequestError('Failed to fetch plan metadata');
+      }
+
+      for (const plan of plans ?? []) {
+        planById.set(plan.id, {
+          trigger_source: plan.trigger_source,
+          created_at: plan.created_at,
+        });
+      }
+    }
+
+    const toSuggestion = (item: PlanItemRow): SuggestionRow => {
+      const recipeData = recipeDataById.get(item.recipe_id);
+      if (!recipeData) {
+        throw new BadRequestError('Failed to resolve suggestion recipes');
+      }
+
+      const planMeta = planById.get(item.plan_id);
+      return {
+        id: item.id,
+        recipe_data: recipeData,
+        generated_at: planMeta?.created_at ?? item.created_at,
+        saved_recipe_id: null,
+        run_id: item.plan_id,
+        trigger_source: planMeta?.trigger_source,
+        rank: item.rank,
+      };
+    };
+
+    const suggestions = {
+      breakfast: selections.breakfast.map(toSuggestion),
+      lunch: selections.lunch.map(toSuggestion),
+      dinner: selections.dinner.map(toSuggestion),
+      dessert: selections.dessert.map(toSuggestion),
     };
 
     res.json({ suggestions });
@@ -184,25 +351,55 @@ router.post('/generate', requireAuth, requireDailyGenerationAdmin, async (req, r
       triggerSource: 'manual',
     });
 
-    const runId = result.runIdsByUser[authReq.userId];
-    if (!runId) {
-      throw new BadRequestError('No daily suggestions generated for this user');
+    const { data: plan, error: planError } = await supabaseAdmin
+      .from('daily_meal_plans')
+      .select('id, trigger_source, created_at')
+      .eq('id', result.planId)
+      .single();
+
+    if (planError || !plan) {
+      throw new BadRequestError('Failed to fetch generated plan');
     }
 
-    const { data: suggestions, error } = await supabaseAdmin
-      .from('daily_suggestions')
-      .select('*')
-      .eq('user_id', authReq.userId)
-      .eq('run_id', runId)
+    const { data: planItems, error: itemsError } = await supabaseAdmin
+      .from('daily_meal_plan_items')
+      .select('id, recipe_id, meal_type, rank')
+      .eq('plan_id', plan.id)
       .order('rank', { ascending: true });
 
-    if (error) {
+    if (itemsError) {
       throw new BadRequestError('Failed to fetch generated suggestions');
     }
 
+    const recipeIds = (planItems ?? []).map((item) => item.recipe_id);
+    const recipeDataById = await buildRecipeDataById(recipeIds);
+
+    const expiresAt = new Date();
+    expiresAt.setHours(23, 59, 59, 999);
+
+    const suggestions: SuggestionRow[] = [];
+    for (const item of planItems ?? []) {
+      const recipeData = recipeDataById.get(item.recipe_id);
+      if (!recipeData) {
+        throw new BadRequestError('Failed to resolve suggestion recipes');
+      }
+
+      suggestions.push({
+        id: item.id,
+        user_id: authReq.userId,
+        recipe_data: recipeData,
+        generated_at: plan.created_at,
+        expires_at: expiresAt.toISOString(),
+        saved_recipe_id: null,
+        run_id: plan.id,
+        trigger_source: plan.trigger_source,
+        rank: item.rank,
+      });
+    }
+
     res.status(201).json({
-      run_id: runId,
-      suggestions: suggestions ?? [],
+      run_id: plan.id,
+      suggestions,
     });
   } catch (err) {
     next(err);
@@ -215,113 +412,45 @@ router.post('/suggestions/:id/save', requireAuth, async (req, res: Response, nex
     const authReq = req as AuthenticatedRequest;
     const { id } = req.params;
 
-    // Get the suggestion
-    const { data: suggestion, error: fetchError } = await supabaseAdmin
-      .from('daily_suggestions')
-      .select('*')
+    const { data: planItem, error: fetchError } = await supabaseAdmin
+      .from('daily_meal_plan_items')
+      .select('id, recipe_id')
       .eq('id', id)
-      .eq('user_id', authReq.userId)
       .single();
 
-    if (fetchError || !suggestion) {
+    if (fetchError || !planItem) {
       throw new NotFoundError('Suggestion');
     }
 
-    if (suggestion.saved_recipe_id) {
+    const { data: existingSave, error: saveLookupError } = await supabaseAdmin
+      .from('recipe_saves')
+      .select('id, recipe_id')
+      .eq('user_id', authReq.userId)
+      .eq('daily_plan_item_id', planItem.id)
+      .maybeSingle();
+
+    if (saveLookupError) {
+      throw new BadRequestError('Failed to fetch saved suggestions');
+    }
+
+    if (existingSave) {
       throw new BadRequestError('Suggestion already saved');
     }
 
-    // Extract recipe data from the suggestion
-    const recipeData = suggestion.recipe_data as {
-      title?: string;
-      description?: string;
-      ingredients?: Array<{ raw_text: string; quantity?: number; unit?: string; ingredient_name?: string }>;
-      steps?: Array<{ instruction: string }>;
-      prep_time_minutes?: number;
-      cook_time_minutes?: number;
-      servings?: number;
-      calories?: number;
-      tags?: string[];
-      cuisine?: string;
-      dietary_labels?: string[];
-      metadata?: Record<string, unknown>;
-      media?: Array<{ media_type: 'image' | 'video'; url: string; name?: string | null; is_generated?: boolean }>;
-    };
+    const recipe = await recipeService.copyRecipe(planItem.recipe_id, authReq.userId);
 
-    // Create the recipe
-    const { data: recipe, error: recipeError } = await supabaseAdmin
-      .from('recipes')
+    const { error: saveError } = await supabaseAdmin
+      .from('recipe_saves')
       .insert({
         user_id: authReq.userId,
-        title: recipeData.title ?? 'Untitled Recipe',
-        description: recipeData.description,
-        source_type: 'ai',
-        prep_time_minutes: recipeData.prep_time_minutes,
-        cook_time_minutes: recipeData.cook_time_minutes,
-        servings: recipeData.servings,
-        calories: recipeData.calories,
-        tags: recipeData.tags ?? [],
-        cuisine: recipeData.cuisine,
-        dietary_labels: recipeData.dietary_labels ?? [],
-        metadata: (recipeData.metadata ?? {}) as Json,
-      })
-      .select()
-      .single();
+        recipe_id: recipe.id,
+        source_recipe_id: planItem.recipe_id,
+        daily_plan_item_id: planItem.id,
+      });
 
-    if (recipeError || !recipe) {
-      throw new BadRequestError('Failed to create recipe from suggestion');
+    if (saveError) {
+      throw new BadRequestError('Failed to save suggestion');
     }
-
-    // Create ingredients
-    if (recipeData.ingredients && recipeData.ingredients.length > 0) {
-      await supabaseAdmin
-        .from('recipe_ingredients')
-        .insert(
-          recipeData.ingredients.map((ing, index) => ({
-            recipe_id: recipe.id,
-            position: index + 1,
-            raw_text: ing.raw_text,
-            quantity: ing.quantity,
-            unit: ing.unit,
-            ingredient_name: ing.ingredient_name,
-          }))
-        );
-    }
-
-    // Create steps
-    if (recipeData.steps && recipeData.steps.length > 0) {
-      await supabaseAdmin
-        .from('recipe_steps')
-        .insert(
-          recipeData.steps.map((step, index) => ({
-            recipe_id: recipe.id,
-            position: index + 1,
-            instruction: step.instruction,
-          }))
-        );
-    }
-
-    // Create media
-    if (recipeData.media && recipeData.media.length > 0) {
-      await supabaseAdmin
-        .from('recipe_media')
-        .insert(
-          recipeData.media.map((media, index) => ({
-            recipe_id: recipe.id,
-            position: index + 1,
-            media_type: media.media_type,
-            url: media.url,
-            name: media.name ?? null,
-            is_generated: media.is_generated ?? false,
-          }))
-        );
-    }
-
-    // Update the suggestion with the saved recipe ID
-    await supabaseAdmin
-      .from('daily_suggestions')
-      .update({ saved_recipe_id: recipe.id })
-      .eq('id', id);
 
     res.status(201).json(recipe);
   } catch (err) {

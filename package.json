@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "jobs:daily": "bash scripts/daily-generation.sh"
+    "jobs:daily": "bash scripts/daily-generation.sh",
+    "backfill:daily-plans": "tsx --env-file=.env scripts/backfill-daily-meal-plans.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

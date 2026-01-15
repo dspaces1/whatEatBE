@@ -1,23 +1,9 @@
 import { supabaseAdmin } from '../config/supabase.js';
-import { env } from '../config/env.js';
 import { aiService } from './ai.service.js';
 import { logger } from '../utils/logger.js';
-import { BadRequestError } from '../utils/errors.js';
-import type { UserPreferences } from '../types/index.js';
 import type { RecipeEnvelope } from '../schemas/envelope.js';
 
 type TriggerSource = 'manual' | 'scheduled';
-
-interface GenerateOptions {
-  count?: number;
-  triggerSource?: TriggerSource;
-  targetDate?: string;
-}
-
-interface GenerationResult {
-  runId: string;
-  suggestions: RecipeEnvelope[];
-}
 
 interface SharedGenerateOptions {
   triggerSource?: TriggerSource;
@@ -26,219 +12,116 @@ interface SharedGenerateOptions {
 }
 
 interface SharedGenerationResult {
-  runIdsByUser: Record<string, string>;
+  planId: string;
   suggestions: RecipeEnvelope[];
 }
 
-const DEFAULT_COUNT = 1; // todo change back to 3
 const DEFAULT_COUNT_PER_MEAL = 1; // todo change back to 2
+const MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'dessert']);
 
 export class DailyGenerationService {
-  async generateForUser(userId: string, options: GenerateOptions = {}): Promise<GenerationResult> {
-    const triggerSource = options.triggerSource ?? 'manual';
-    const count = options.count ?? DEFAULT_COUNT;
-    const targetDate = options.targetDate ?? new Date().toISOString().split('T')[0];
+  async generateSharedForAllUsers(options: SharedGenerateOptions = {}): Promise<SharedGenerationResult> {
+    const triggerSource = options.triggerSource ?? 'scheduled';
+    const countPerMeal = options.countPerMeal ?? DEFAULT_COUNT_PER_MEAL;
+    const planDate = options.targetDate ?? new Date().toISOString().split('T')[0];
 
-    const { data: run, error: runError } = await supabaseAdmin
-      .from('daily_recipe_runs')
+    const { data: plan, error: planError } = await supabaseAdmin
+      .from('daily_meal_plans')
       .insert({
-        user_id: userId,
+        plan_date: planDate,
         trigger_source: triggerSource,
-        target_date: targetDate,
         status: 'processing',
       })
       .select()
       .single();
 
-    if (runError || !run) {
-      logger.error({ userId, runError }, 'Failed to create daily recipe run');
-      throw new Error('Failed to create daily run');
+    if (planError || !plan) {
+      logger.error({ planError }, 'Failed to create daily meal plan');
+      throw new Error('Failed to create daily meal plan');
     }
 
     try {
-      const remaining = await this.getRemainingGenerations(userId);
-      if (remaining <= 0) {
-        await this.markRun(run.id, 'failed');
-        throw new BadRequestError('Daily AI limit reached');
-      }
-
-      const targetCount = Math.min(count, remaining);
-      const preferences = await this.loadPreferences(userId);
-      const suggestions = await aiService.generateDailySuggestions(preferences, targetCount);
-
+      const suggestions = await aiService.generateMealPlan(countPerMeal);
       if (suggestions.length === 0) {
-        await this.markRun(run.id, 'failed');
-        throw new Error('Failed to generate suggestions');
+        await this.markPlan(plan.id, 'failed');
+        throw new Error('Failed to generate shared suggestions');
       }
 
-      await aiService.storeSuggestions(userId, suggestions, {
-        runId: run.id,
-        triggerSource,
-      });
+      const planItems: Array<{
+        plan_id: string;
+        recipe_id: string;
+        meal_type: string;
+        rank: number;
+      }> = [];
 
       for (let i = 0; i < suggestions.length; i++) {
-        await aiService.incrementUsageCounter(userId);
+        const envelope = suggestions[i];
+        const recipe = await aiService.saveGeneratedRecipe(envelope);
+        if (!recipe) {
+          throw new Error('Failed to save generated recipe');
+        }
+
+        const mealType = this.getMealType(envelope);
+        if (!mealType) {
+          throw new Error('Missing meal type for generated recipe');
+        }
+
+        planItems.push({
+          plan_id: plan.id,
+          recipe_id: recipe.id,
+          meal_type: mealType,
+          rank: i + 1,
+        });
       }
 
-      await this.markRun(run.id, 'completed');
-      await this.supersedePreviousRuns(userId, targetDate, run.id);
+      const { error: planItemsError } = await supabaseAdmin
+        .from('daily_meal_plan_items')
+        .insert(planItems);
 
-      return { runId: run.id, suggestions };
+      if (planItemsError) {
+        logger.error({ planItemsError }, 'Failed to store daily meal plan items');
+        throw new Error('Failed to store daily meal plan items');
+      }
+
+      await this.markPlan(plan.id, 'completed');
+      return { planId: plan.id, suggestions };
     } catch (error) {
-      await this.markRun(run.id, 'failed');
+      await this.markPlan(plan.id, 'failed');
       throw error;
     }
   }
 
-  async generateSharedForAllUsers(options: SharedGenerateOptions = {}): Promise<SharedGenerationResult> {
-    const triggerSource = options.triggerSource ?? 'scheduled';
-    const countPerMeal = options.countPerMeal ?? DEFAULT_COUNT_PER_MEAL;
-    const targetDate = options.targetDate ?? new Date().toISOString().split('T')[0];
-
-    const userIds = await this.listAllUserIds();
-    if (userIds.length === 0) {
-      logger.info('No users available for daily generation');
-      return { runIdsByUser: {}, suggestions: [] };
-    }
-
-    const suggestions = await aiService.generateMealPlan(countPerMeal);
-    if (suggestions.length === 0) {
-      throw new Error('Failed to generate shared suggestions');
-    }
-
-    const runIdsByUser: Record<string, string> = {};
-
-    for (const userId of userIds) {
-      const { data: run, error: runError } = await supabaseAdmin
-        .from('daily_recipe_runs')
-        .insert({
-          user_id: userId,
-          trigger_source: triggerSource,
-          target_date: targetDate,
-          status: 'processing',
-        })
-        .select()
-        .single();
-
-      if (runError || !run) {
-        logger.error({ userId, runError }, 'Failed to create daily recipe run');
-        continue;
-      }
-
-      runIdsByUser[userId] = run.id;
-
-      try {
-        await aiService.storeSuggestions(userId, suggestions, {
-          runId: run.id,
-          triggerSource,
-        });
-
-        await this.markRun(run.id, 'completed');
-        await this.supersedePreviousRuns(userId, targetDate, run.id);
-      } catch (error) {
-        await this.markRun(run.id, 'failed');
-        logger.error({ userId, error }, 'Failed to store shared suggestions');
+  private getMealType(envelope: RecipeEnvelope): string | null {
+    const metadataMealType = envelope.recipe.metadata?.meal_type;
+    if (typeof metadataMealType === 'string') {
+      const normalized = metadataMealType.trim().toLowerCase();
+      if (MEAL_TYPES.has(normalized)) {
+        return normalized;
       }
     }
 
-    return { runIdsByUser, suggestions };
+    const tags = envelope.recipe.tags ?? [];
+    for (const tag of tags) {
+      const normalized = tag.trim().toLowerCase();
+      if (MEAL_TYPES.has(normalized)) {
+        return normalized;
+      }
+    }
+
+    return null;
   }
 
-  private async listAllUserIds(): Promise<string[]> {
-    const userIds: string[] = [];
-    const perPage = 1000;
-    let page = 1;
-
-    while (true) {
-      const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-        page,
-        perPage,
-      });
-
-      if (error) {
-        logger.error({ error }, 'Failed to list users');
-        throw new Error('Failed to list users');
-      }
-
-      const users = data?.users ?? [];
-      userIds.push(...users.map((user) => user.id));
-
-      if (users.length < perPage) {
-        break;
-      }
-
-      page += 1;
-    }
-
-    return userIds;
-  }
-
-  private async loadPreferences(userId: string): Promise<Partial<UserPreferences>> {
-    const { data, error } = await supabaseAdmin
-      .from('user_preferences')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      logger.error({ userId, error }, 'Failed to fetch user preferences');
-      throw new Error('Failed to fetch preferences');
-    }
-
-    return (
-      data ?? {
-        user_id: userId,
-        dietary_restrictions: [],
-        preferred_cuisines: [],
-        excluded_ingredients: [],
-      }
-    );
-  }
-
-  private async getRemainingGenerations(userId: string): Promise<number> {
-    const today = new Date().toISOString().split('T')[0];
-
-    const { data, error } = await supabaseAdmin
-      .from('usage_counters')
-      .select('ai_generations_count')
-      .eq('user_id', userId)
-      .eq('date', today)
-      .maybeSingle();
-
-    if (error && error.code !== 'PGRST116') {
-      logger.error({ userId, error }, 'Failed to read usage counter');
-      return 0;
-    }
-
-    const used = data?.ai_generations_count ?? 0;
-    return Math.max(0, env.DAILY_AI_GENERATION_LIMIT - used);
-  }
-
-  private async supersedePreviousRuns(userId: string, targetDate: string, runId: string): Promise<void> {
+  private async markPlan(planId: string, status: 'completed' | 'failed'): Promise<void> {
     const { error } = await supabaseAdmin
-      .from('daily_recipe_runs')
-      .update({ status: 'superseded', superseded_by: runId })
-      .eq('user_id', userId)
-      .eq('target_date', targetDate)
-      .neq('id', runId)
-      .is('superseded_by', null);
-
-    if (error) {
-      logger.warn({ userId, error }, 'Failed to supersede previous daily runs');
-    }
-  }
-
-  private async markRun(runId: string, status: 'completed' | 'failed'): Promise<void> {
-    const { error } = await supabaseAdmin
-      .from('daily_recipe_runs')
+      .from('daily_meal_plans')
       .update({
         status,
         completed_at: new Date().toISOString(),
       })
-      .eq('id', runId);
+      .eq('id', planId);
 
     if (error) {
-      logger.warn({ runId, error }, 'Failed to update daily run status');
+      logger.warn({ planId, error }, 'Failed to update daily meal plan status');
     }
   }
 }

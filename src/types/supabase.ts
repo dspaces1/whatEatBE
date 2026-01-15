@@ -121,6 +121,75 @@ export type Database = {
           }
         ];
       };
+      daily_meal_plans: {
+        Row: {
+          id: string;
+          plan_date: string;
+          trigger_source: string;
+          status: string;
+          created_at: string;
+          completed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          plan_date: string;
+          trigger_source: string;
+          status?: string;
+          created_at?: string;
+          completed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          plan_date?: string;
+          trigger_source?: string;
+          status?: string;
+          created_at?: string;
+          completed_at?: string | null;
+        };
+        Relationships: [];
+      };
+      daily_meal_plan_items: {
+        Row: {
+          id: string;
+          plan_id: string;
+          recipe_id: string;
+          meal_type: string;
+          rank: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          plan_id: string;
+          recipe_id: string;
+          meal_type: string;
+          rank: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          plan_id?: string;
+          recipe_id?: string;
+          meal_type?: string;
+          rank?: number;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "daily_meal_plan_items_plan_id_fkey";
+            columns: ["plan_id"];
+            isOneToOne: false;
+            referencedRelation: "daily_meal_plans";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "daily_meal_plan_items_recipe_id_fkey";
+            columns: ["recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "recipes";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       import_jobs: {
         Row: {
           id: string;
@@ -180,6 +249,62 @@ export type Database = {
             columns: ["result_recipe_id"];
             isOneToOne: false;
             referencedRelation: "recipes";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      recipe_saves: {
+        Row: {
+          id: string;
+          user_id: string;
+          recipe_id: string;
+          source_recipe_id: string | null;
+          daily_plan_item_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          recipe_id: string;
+          source_recipe_id?: string | null;
+          daily_plan_item_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          recipe_id?: string;
+          source_recipe_id?: string | null;
+          daily_plan_item_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "recipe_saves_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recipe_saves_recipe_id_fkey";
+            columns: ["recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "recipes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recipe_saves_source_recipe_id_fkey";
+            columns: ["source_recipe_id"];
+            isOneToOne: false;
+            referencedRelation: "recipes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recipe_saves_daily_plan_item_id_fkey";
+            columns: ["daily_plan_item_id"];
+            isOneToOne: false;
+            referencedRelation: "daily_meal_plan_items";
             referencedColumns: ["id"];
           }
         ];
