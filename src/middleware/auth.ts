@@ -19,7 +19,11 @@ const normalizeUrl = (value: string): string => (
 
 const supabaseUrl = normalizeUrl(env.SUPABASE_URL);
 const issuer = `${supabaseUrl}/auth/v1`;
-const jwks = createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/keys`));
+const jwks = createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/keys`), {
+  headers: {
+    apikey: env.SUPABASE_ANON_KEY,
+  },
+});
 
 const verifySupabaseToken = async (token: string): Promise<SupabaseJwtPayload> => {
   const { payload } = await jwtVerify(token, jwks, {
@@ -136,6 +140,5 @@ export const optionalAuth = async (
     next();
   }
 };
-
 
 
