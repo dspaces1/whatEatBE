@@ -11,7 +11,7 @@ Short context for future work on daily AI recipes and cron jobs.
 - User refresh is `GET /api/v1/daily/refresh?count_per_meal=2`, non-persistent, returns random historical suggestions per meal type.
 - Cron job entry: `npm run jobs:daily` runs `scripts/daily-generation.sh` -> `dist/jobs/daily-generation.js`.
   - Script loads `.env` if present; Render injects env vars directly (no `.env`).
-- Auth: API auth uses Supabase access tokens verified via JWKS (RS256) against `${SUPABASE_URL}/auth/v1/keys` with `apikey: ${SUPABASE_ANON_KEY}`; requires `aud=authenticated` and matching issuer (`${SUPABASE_URL}/auth/v1`). `SUPABASE_JWT_SECRET` is no longer used.
+- Auth: API auth uses Supabase access tokens verified via JWKS (RS256) against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` with `apikey: ${SUPABASE_ANON_KEY}`; requires `aud=authenticated` and matching issuer (`${SUPABASE_URL}/auth/v1`). `SUPABASE_JWT_SECRET` is no longer used.
 - OpenAI: `OPENAI_MODEL` uses `max_completion_tokens` (env: `OPENAI_MAX_COMPLETION_TOKENS`).
   - JSON schema uses `additionalProperties: false` and requires all properties (nullable allowed).
 - Image generation: `DALLE_MODEL` must be supported value (e.g., `gpt-image-1.5` or `dall-e-3`).

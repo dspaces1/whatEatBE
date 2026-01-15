@@ -19,7 +19,7 @@ const normalizeUrl = (value: string): string => (
 
 const supabaseUrl = normalizeUrl(env.SUPABASE_URL);
 const issuer = `${supabaseUrl}/auth/v1`;
-const jwks = createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/keys`), {
+const jwks = createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`), {
   headers: {
     apikey: env.SUPABASE_ANON_KEY,
   },
@@ -140,5 +140,4 @@ export const optionalAuth = async (
     next();
   }
 };
-
 
