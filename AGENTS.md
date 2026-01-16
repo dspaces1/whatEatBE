@@ -9,6 +9,7 @@ Short context for future work on daily AI recipes and cron jobs.
 - Backfill: `npm run backfill:daily-plans` migrates legacy `daily_suggestions` into `daily_meal_plans`/`daily_meal_plan_items` and `recipe_saves` (requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
 - Manual generation endpoint `POST /api/v1/daily/generate` is admin-only (env: `DAILY_GENERATION_ADMIN_EMAILS` or `DAILY_GENERATION_ADMIN_USER_IDS`).
 - User refresh is `GET /api/v1/daily/refresh?count_per_meal=2`, non-persistent, returns random historical suggestions per meal type.
+- Import URL preview order: JSON-LD, ChatGPT share parser, Readability (jsdom), heuristics, then AI fallback (optionally using extracted text); returns a recipe envelope without persisting until `/recipes` is called.
 - Cron job entry: `npm run jobs:daily` runs `scripts/daily-generation.sh` -> `dist/jobs/daily-generation.js`.
   - Script loads `.env` if present; Render injects env vars directly (no `.env`).
 - Auth: API auth uses Supabase access tokens verified via JWKS (RS256) against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` with `apikey: ${SUPABASE_ANON_KEY}`; requires `aud=authenticated` and matching issuer (`${SUPABASE_URL}/auth/v1`). `SUPABASE_JWT_SECRET` is no longer used.
@@ -21,3 +22,5 @@ Short context for future work on daily AI recipes and cron jobs.
 - Build/run commands: `npm run dev`, `npm run build`, `npm run start`, `npm run typecheck`, `npm run jobs:daily`.
 - TypeScript ESM project; avoid editing `dist/` directly—regenerate via `npm run build`.
 - Config hygiene: local dev uses `.env` (tsx `--env-file`); production uses injected env vars—don’t commit secrets.
+- Always update this markdown file if any changes effect the context found here
+- After making any code changes always, run `npm run typecheck` and then run `npm run build`. If any issues appear try to fix them

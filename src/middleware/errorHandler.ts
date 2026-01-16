@@ -18,9 +18,11 @@ export const errorHandler = (
 
   // Handle known application errors
   if (err instanceof AppError) {
+    const details = (err as AppError & { details?: Record<string, unknown> }).details;
     res.status(err.statusCode).json({
       error: err.message,
       code: err.code,
+      ...(details ? { details } : {}),
     });
     return;
   }
@@ -41,7 +43,6 @@ export const errorHandler = (
       : err.message,
   });
 };
-
 
 
 

@@ -2,11 +2,13 @@ export class AppError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
   public readonly isOperational: boolean;
+  public readonly details?: Record<string, unknown>;
 
-  constructor(message: string, statusCode: number, code: string) {
+  constructor(message: string, statusCode: number, code: string, details?: Record<string, unknown>) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;
+    this.details = details;
     this.isOperational = true;
 
     Error.captureStackTrace(this, this.constructor);
@@ -49,6 +51,16 @@ export class RateLimitError extends AppError {
   }
 }
 
+export class ImportError extends AppError {
+  constructor(
+    message: string,
+    code: string,
+    statusCode = 422,
+    details?: Record<string, unknown>
+  ) {
+    super(message, statusCode, code, details);
+  }
+}
 
 
 

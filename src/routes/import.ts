@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { BadRequestError, NotFoundError } from '../utils/errors.js';
+import { importService } from '../services/import.service.js';
 
 const router = Router();
 
@@ -21,32 +22,12 @@ router.post('/url', requireAuth, async (req, res: Response, next) => {
     const authReq = req as AuthenticatedRequest;
     const { url } = importUrlSchema.parse(req.body);
 
-    // Create import job
-    const { data: job, error } = await supabaseAdmin
-      .from('import_jobs')
-      .insert({
-        user_id: authReq.userId,
-        type: 'url',
-        status: 'pending',
-        input_url: url,
-      })
-      .select()
-      .single();
+    const result = await importService.previewFromUrl(url, authReq.userId);
 
-    if (error || !job) {
-      throw new BadRequestError('Failed to create import job');
-    }
-
-    // TODO: Trigger async job processing
-    // This could be done via:
-    // - A background worker polling the jobs table
-    // - A webhook/queue system
-    // - Direct processing for simple cases
-
-    res.status(202).json({
-      job_id: job.id,
-      status: job.status,
-      message: 'Import job created. Poll GET /api/v1/import/jobs/:id for status.',
+    res.json({
+      extracted_from: result.extracted_from,
+      warnings: result.warnings,
+      save_payload: result.envelope,
     });
   } catch (err) {
     next(err);
@@ -57,31 +38,9 @@ router.post('/url', requireAuth, async (req, res: Response, next) => {
 router.post('/image', requireAuth, async (req, res: Response, next) => {
   try {
     const authReq = req as AuthenticatedRequest;
-    const { image_path } = importImageSchema.parse(req.body);
+    const { image_path: _imagePath } = importImageSchema.parse(req.body);
 
-    // Create import job
-    const { data: job, error } = await supabaseAdmin
-      .from('import_jobs')
-      .insert({
-        user_id: authReq.userId,
-        type: 'image',
-        status: 'pending',
-        input_image_path: image_path,
-      })
-      .select()
-      .single();
-
-    if (error || !job) {
-      throw new BadRequestError('Failed to create import job');
-    }
-
-    // TODO: Trigger async job processing
-
-    res.status(202).json({
-      job_id: job.id,
-      status: job.status,
-      message: 'Import job created. Poll GET /api/v1/import/jobs/:id for status.',
-    });
+    throw new BadRequestError('Image import is not yet available');
   } catch (err) {
     next(err);
   }
@@ -133,8 +92,5 @@ router.get('/jobs', requireAuth, async (req, res: Response, next) => {
 });
 
 export default router;
-
-
-
 
 
