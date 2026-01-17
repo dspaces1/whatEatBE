@@ -4,7 +4,6 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { requireAuth, requireDailyGenerationAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { dailyGenerationService } from '../services/daily-generation.service.js';
-import { recipeService } from '../services/recipe.service.js';
 import { dbToEnvelope, type RecipeEnvelope } from '../schemas/envelope.js';
 import type { Recipe, RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
@@ -401,58 +400,6 @@ router.post('/generate', requireAuth, requireDailyGenerationAdmin, async (req, r
       run_id: plan.id,
       suggestions,
     });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Save a daily suggestion as a recipe
-router.post('/suggestions/:id/save', requireAuth, async (req, res: Response, next) => {
-  try {
-    const authReq = req as AuthenticatedRequest;
-    const { id } = req.params;
-
-    const { data: planItem, error: fetchError } = await supabaseAdmin
-      .from('daily_meal_plan_items')
-      .select('id, recipe_id')
-      .eq('id', id)
-      .single();
-
-    if (fetchError || !planItem) {
-      throw new NotFoundError('Suggestion');
-    }
-
-    const { data: existingSave, error: saveLookupError } = await supabaseAdmin
-      .from('recipe_saves')
-      .select('id, recipe_id')
-      .eq('user_id', authReq.userId)
-      .eq('daily_plan_item_id', planItem.id)
-      .maybeSingle();
-
-    if (saveLookupError) {
-      throw new BadRequestError('Failed to fetch saved suggestions');
-    }
-
-    if (existingSave) {
-      throw new BadRequestError('Suggestion already saved');
-    }
-
-    const recipe = await recipeService.copyRecipe(planItem.recipe_id, authReq.userId);
-
-    const { error: saveError } = await supabaseAdmin
-      .from('recipe_saves')
-      .insert({
-        user_id: authReq.userId,
-        recipe_id: recipe.id,
-        source_recipe_id: planItem.recipe_id,
-        daily_plan_item_id: planItem.id,
-      });
-
-    if (saveError) {
-      throw new BadRequestError('Failed to save suggestion');
-    }
-
-    res.status(201).json(recipe);
   } catch (err) {
     next(err);
   }

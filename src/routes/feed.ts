@@ -1,9 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
-import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { aiService } from '../services/ai.service.js';
-import { recipeService } from '../services/recipe.service.js';
 import { dbToEnvelope } from '../schemas/envelope.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
@@ -179,32 +177,6 @@ router.get('/:id', async (req: Request, res: Response, next) => {
 
     res.json(envelope);
   } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * POST /feed/:id/save
- * Save a feed recipe to user's collection (authenticated)
- */
-router.post('/:id/save', requireAuth, async (req, res: Response, next) => {
-  try {
-    const authReq = req as AuthenticatedRequest;
-    const { id } = req.params;
-
-    // Use the copy recipe functionality
-    const recipe = await recipeService.copyRecipe(id, authReq.userId);
-
-    res.status(201).json({
-      id: recipe.id,
-      title: recipe.title,
-      source_recipe_id: recipe.source_recipe_id,
-      created_at: recipe.created_at,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('not found')) {
-      return next(new NotFoundError('Feed recipe'));
-    }
     next(err);
   }
 });

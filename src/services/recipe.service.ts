@@ -357,7 +357,11 @@ export class RecipeService {
   /**
    * Copy a recipe to user's collection (fork)
    */
-  async copyRecipe(sourceRecipeId: string, userId: string): Promise<Recipe> {
+  async copyRecipe(
+    sourceRecipeId: string,
+    userId: string,
+    options?: { allowPrivate?: boolean }
+  ): Promise<Recipe> {
     // Get source recipe
     const { data: source } = await supabaseAdmin
       .from('recipes')
@@ -370,8 +374,8 @@ export class RecipeService {
       throw new Error('Source recipe not found');
     }
 
-    // Check access: global recipe OR user owns it
-    if (source.user_id !== null && source.user_id !== userId) {
+    // Check access: global recipe OR user owns it unless explicitly allowed
+    if (!options?.allowPrivate && source.user_id !== null && source.user_id !== userId) {
       throw new Error('Cannot copy this recipe');
     }
 

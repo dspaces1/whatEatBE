@@ -120,32 +120,4 @@ router.delete('/:id', requireAuth, async (req, res: Response, next) => {
   }
 });
 
-/**
- * POST /recipes/:id/copy
- * Copy a recipe to user's collection (fork from feed or shared recipe)
- */
-router.post('/:id/copy', requireAuth, async (req, res: Response, next) => {
-  try {
-    const authReq = req as AuthenticatedRequest;
-    const { id } = req.params;
-
-    const recipe = await recipeService.copyRecipe(id, authReq.userId);
-
-    res.status(201).json({
-      id: recipe.id,
-      title: recipe.title,
-      source_recipe_id: recipe.source_recipe_id,
-      created_at: recipe.created_at,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('not found')) {
-      return next(new NotFoundError('Recipe'));
-    }
-    if (err instanceof Error && err.message.includes('Cannot copy')) {
-      return next(new BadRequestError(err.message));
-    }
-    next(err);
-  }
-});
-
 export default router;
