@@ -6,6 +6,11 @@ import { BadRequestError } from '../utils/errors.js';
 
 const router = Router();
 
+const paginationSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
 const createRecipeSaveSchema = z.discriminatedUnion('source_type', [
   z.object({
     source_type: z.literal('daily_plan_item'),
@@ -20,6 +25,26 @@ const createRecipeSaveSchema = z.discriminatedUnion('source_type', [
     source_id: z.string().min(1),
   }),
 ]);
+
+/**
+ * GET /recipe-saves
+ * List user's saved recipes
+ */
+router.get('/', requireAuth, async (req, res: Response, next) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const { page, limit } = paginationSchema.parse(req.query);
+
+    const result = await recipeSavesService.listRecipeSaves(authReq.userId, page, limit);
+
+    res.json({
+      recipe_saves: result.recipe_saves,
+      pagination: result.pagination,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * POST /recipe-saves
