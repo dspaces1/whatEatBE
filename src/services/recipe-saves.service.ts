@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { normalizeCuisine } from '../utils/cuisines.js';
 import { normalizeRecipeTags } from '../utils/recipe-tags.js';
 import type { RecipeListItem } from '../types/index.js';
+import type { RecipeEnvelope } from '../schemas/envelope.js';
 
 export type RecipeSaveSource =
   | { source_type: 'daily_plan_item'; source_id: string }
@@ -18,6 +19,7 @@ export type RecipeSaveResult = {
   daily_plan_item_id: string | null;
   created_at: string;
   recipe_title: string;
+  recipe: RecipeEnvelope;
 };
 
 export type RecipeSaveListItem = {
@@ -145,6 +147,11 @@ export class RecipeSavesService {
       throw new BadRequestError('Failed to save recipe');
     }
 
+    const recipe = await recipeService.getRecipeById(copiedRecipe.id, userId);
+    if (!recipe) {
+      throw new BadRequestError('Failed to load saved recipe');
+    }
+
     return {
       id: save.id,
       recipe_id: save.recipe_id,
@@ -152,6 +159,7 @@ export class RecipeSavesService {
       daily_plan_item_id: save.daily_plan_item_id,
       created_at: save.created_at,
       recipe_title: copiedRecipe.title,
+      recipe,
     };
   }
 

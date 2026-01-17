@@ -64,6 +64,7 @@ router.post('/', requireAuth, async (req, res: Response, next) => {
       source_recipe_id: result.source_recipe_id,
       daily_plan_item_id: result.daily_plan_item_id,
       created_at: result.created_at,
+      recipe: result.recipe,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
