@@ -6,6 +6,7 @@ Short context for future work on daily AI recipes and cron jobs.
   - AI recipes for the plan are saved in `recipes` (global: `user_id = NULL`); user saves create copies with `source_recipe_id` and a `recipe_saves` row.
 - Legacy: `daily_suggestions` is no longer written by the daily plan flow (kept for historical data only).
 - Daily refresh uses historical `daily_meal_plan_items` and excludes items already saved by the requesting user.
+- `GET /api/v1/daily/suggestions` falls back to refresh-style historical picks when no completed plan exists for the day.
 - Backfill: `npm run backfill:daily-plans` migrates legacy `daily_suggestions` into `daily_meal_plans`/`daily_meal_plan_items` and `recipe_saves` (requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
 - Backfill: `npm run backfill:normalize-recipes` rewrites `recipes.cuisine`, `recipes.dietary_labels`, and `recipes.tags` to canonical snake_case values (requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
 - Manual generation endpoint `POST /api/v1/daily/generate` is admin-only (env: `DAILY_GENERATION_ADMIN_EMAILS` or `DAILY_GENERATION_ADMIN_USER_IDS`).

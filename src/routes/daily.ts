@@ -44,6 +44,7 @@ type PlanItemRow = {
 };
 
 const MAX_REFRESH_POOL = 500;
+const DEFAULT_COUNT_PER_MEAL = refreshSchema.parse({}).count_per_meal;
 
 const pickRandom = <T,>(items: T[], count: number): T[] => {
   if (items.length <= count) {
@@ -133,6 +134,125 @@ const buildRecipeDataById = async (
   return dataById;
 };
 
+type SuggestionsByMeal = Record<MealType, SuggestionRow[]>;
+
+const buildRefreshSuggestions = async (
+  userId: string,
+  countPerMeal: number
+): Promise<SuggestionsByMeal> => {
+  const { data, error } = await supabaseAdmin
+    .from('daily_meal_plan_items')
+    .select('id, plan_id, recipe_id, meal_type, rank, created_at')
+    .order('created_at', { ascending: false })
+    .limit(MAX_REFRESH_POOL);
+
+  if (error) {
+    throw new BadRequestError('Failed to fetch historical suggestions');
+  }
+
+  const savedItemIds = new Set<string>();
+  if (data && data.length > 0) {
+    const { data: saves, error: savesError } = await supabaseAdmin
+      .from('recipe_saves')
+      .select('daily_plan_item_id')
+      .eq('user_id', userId)
+      .in(
+        'daily_plan_item_id',
+        data.map((item) => item.id)
+      );
+
+    if (savesError) {
+      throw new BadRequestError('Failed to fetch saved suggestions');
+    }
+
+    for (const save of saves ?? []) {
+      if (save.daily_plan_item_id) {
+        savedItemIds.add(save.daily_plan_item_id);
+      }
+    }
+  }
+
+  const buckets: Record<MealType, PlanItemRow[]> = {
+    breakfast: [],
+    lunch: [],
+    dinner: [],
+    dessert: [],
+  };
+
+  for (const row of data ?? []) {
+    const item = row as PlanItemRow;
+    if (savedItemIds.has(item.id)) {
+      continue;
+    }
+    buckets[item.meal_type].push(item);
+  }
+
+  const selections = {
+    breakfast: pickRandom(buckets.breakfast, countPerMeal),
+    lunch: pickRandom(buckets.lunch, countPerMeal),
+    dinner: pickRandom(buckets.dinner, countPerMeal),
+    dessert: pickRandom(buckets.dessert, countPerMeal),
+  };
+
+  const selectedItems = [
+    ...selections.breakfast,
+    ...selections.lunch,
+    ...selections.dinner,
+    ...selections.dessert,
+  ];
+
+  const recipeIds = selectedItems.map((item) => item.recipe_id);
+  const recipeDataById = await buildRecipeDataById(recipeIds);
+
+  const planIds = Array.from(new Set(selectedItems.map((item) => item.plan_id)));
+  const planById = new Map<string, { trigger_source: string; created_at: string }>();
+  if (planIds.length > 0) {
+    const { data: plans, error: planError } = await supabaseAdmin
+      .from('daily_meal_plans')
+      .select('id, trigger_source, created_at')
+      .in('id', planIds);
+
+    if (planError) {
+      throw new BadRequestError('Failed to fetch plan metadata');
+    }
+
+    for (const plan of plans ?? []) {
+      planById.set(plan.id, {
+        trigger_source: plan.trigger_source,
+        created_at: plan.created_at,
+      });
+    }
+  }
+
+  const toSuggestion = (item: PlanItemRow): SuggestionRow => {
+    const recipeData = recipeDataById.get(item.recipe_id);
+    if (!recipeData) {
+      throw new BadRequestError('Failed to resolve suggestion recipes');
+    }
+
+    const planMeta = planById.get(item.plan_id);
+    return {
+      id: item.id,
+      recipe_data: recipeData,
+      generated_at: planMeta?.created_at ?? item.created_at,
+      saved_recipe_id: null,
+      run_id: item.plan_id,
+      trigger_source: planMeta?.trigger_source,
+      rank: item.rank,
+    };
+  };
+
+  return {
+    breakfast: selections.breakfast.map(toSuggestion),
+    lunch: selections.lunch.map(toSuggestion),
+    dinner: selections.dinner.map(toSuggestion),
+    dessert: selections.dessert.map(toSuggestion),
+  };
+};
+
+const flattenSuggestionsByMeal = (suggestions: SuggestionsByMeal): SuggestionRow[] =>
+  MEAL_TYPES.flatMap((mealType) => suggestions[mealType]);
+
 // Get today's daily suggestions
 router.get('/suggestions', requireAuth, async (req, res: Response, next) => {
   try {
@@ -155,7 +275,11 @@ router.get('/suggestions', requireAuth, async (req, res: Response, next) => {
     }
 
     if (!latestPlan) {
-      res.json({ suggestions: [], run: null });
+      const fallbackSuggestions = await buildRefreshSuggestions(
+        authReq.userId,
+        DEFAULT_COUNT_PER_MEAL
+      );
+      res.json({ suggestions: flattenSuggestionsByMeal(fallbackSuggestions), run: null });
       return;
     }
 
@@ -167,6 +291,15 @@ router.get('/suggestions', requireAuth, async (req, res: Response, next) => {
 
     if (planItemsError) {
       throw new BadRequestError('Failed to fetch suggestions');
+    }
+
+    if (!planItems || planItems.length === 0) {
+      const fallbackSuggestions = await buildRefreshSuggestions(
+        authReq.userId,
+        DEFAULT_COUNT_PER_MEAL
+      );
+      res.json({ suggestions: flattenSuggestionsByMeal(fallbackSuggestions), run: null });
+      return;
     }
 
     const itemIds = (planItems ?? []).map((item) => item.id);
@@ -226,113 +359,7 @@ router.get('/refresh', requireAuth, async (req, res: Response, next) => {
   try {
     const authReq = req as AuthenticatedRequest;
     const { count_per_meal: countPerMeal } = refreshSchema.parse(req.query);
-
-    const { data, error } = await supabaseAdmin
-      .from('daily_meal_plan_items')
-      .select('id, plan_id, recipe_id, meal_type, rank, created_at')
-      .order('created_at', { ascending: false })
-      .limit(MAX_REFRESH_POOL);
-
-    if (error) {
-      throw new BadRequestError('Failed to fetch historical suggestions');
-    }
-
-    const savedItemIds = new Set<string>();
-    if (data && data.length > 0) {
-      const { data: saves, error: savesError } = await supabaseAdmin
-        .from('recipe_saves')
-        .select('daily_plan_item_id')
-        .eq('user_id', authReq.userId)
-        .in('daily_plan_item_id', data.map((item) => item.id));
-
-      if (savesError) {
-        throw new BadRequestError('Failed to fetch saved suggestions');
-      }
-
-      for (const save of saves ?? []) {
-        if (save.daily_plan_item_id) {
-          savedItemIds.add(save.daily_plan_item_id);
-        }
-      }
-    }
-
-    const buckets: Record<MealType, PlanItemRow[]> = {
-      breakfast: [],
-      lunch: [],
-      dinner: [],
-      dessert: [],
-    };
-
-    for (const row of data ?? []) {
-      const item = row as PlanItemRow;
-      if (savedItemIds.has(item.id)) {
-        continue;
-      }
-      buckets[item.meal_type].push(item);
-    }
-
-    const selections = {
-      breakfast: pickRandom(buckets.breakfast, countPerMeal),
-      lunch: pickRandom(buckets.lunch, countPerMeal),
-      dinner: pickRandom(buckets.dinner, countPerMeal),
-      dessert: pickRandom(buckets.dessert, countPerMeal),
-    };
-
-    const selectedItems = [
-      ...selections.breakfast,
-      ...selections.lunch,
-      ...selections.dinner,
-      ...selections.dessert,
-    ];
-
-    const recipeIds = selectedItems.map((item) => item.recipe_id);
-    const recipeDataById = await buildRecipeDataById(recipeIds);
-
-    const planIds = Array.from(new Set(selectedItems.map((item) => item.plan_id)));
-    const planById = new Map<string, { trigger_source: string; created_at: string }>();
-    if (planIds.length > 0) {
-      const { data: plans, error: planError } = await supabaseAdmin
-        .from('daily_meal_plans')
-        .select('id, trigger_source, created_at')
-        .in('id', planIds);
-
-      if (planError) {
-        throw new BadRequestError('Failed to fetch plan metadata');
-      }
-
-      for (const plan of plans ?? []) {
-        planById.set(plan.id, {
-          trigger_source: plan.trigger_source,
-          created_at: plan.created_at,
-        });
-      }
-    }
-
-    const toSuggestion = (item: PlanItemRow): SuggestionRow => {
-      const recipeData = recipeDataById.get(item.recipe_id);
-      if (!recipeData) {
-        throw new BadRequestError('Failed to resolve suggestion recipes');
-      }
-
-      const planMeta = planById.get(item.plan_id);
-      return {
-        id: item.id,
-        recipe_data: recipeData,
-        generated_at: planMeta?.created_at ?? item.created_at,
-        saved_recipe_id: null,
-        run_id: item.plan_id,
-        trigger_source: planMeta?.trigger_source,
-        rank: item.rank,
-      };
-    };
-
-    const suggestions = {
-      breakfast: selections.breakfast.map(toSuggestion),
-      lunch: selections.lunch.map(toSuggestion),
-      dinner: selections.dinner.map(toSuggestion),
-      dessert: selections.dessert.map(toSuggestion),
-    };
-
+    const suggestions = await buildRefreshSuggestions(authReq.userId, countPerMeal);
     res.json({ suggestions });
   } catch (err) {
     next(err);
