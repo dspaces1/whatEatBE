@@ -47,7 +47,7 @@ router.get('/:id', requireAuth, async (req, res: Response, next) => {
       throw new NotFoundError('Recipe');
     }
 
-    res.json(envelope);
+    res.json({ recipe_data: envelope.recipe });
   } catch (err) {
     next(err);
   }

@@ -28,7 +28,7 @@ router.get('/:token', async (req: Request, res: Response, next) => {
       throw new NotFoundError('Shared recipe');
     }
 
-    res.json(envelope);
+    res.json({ recipe_data: envelope.recipe });
   } catch (err) {
     next(err);
   }

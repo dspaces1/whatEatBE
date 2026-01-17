@@ -2,10 +2,8 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { recipeService } from './recipe.service.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import { normalizeCuisine } from '../utils/cuisines.js';
-import { normalizeRecipeTags } from '../utils/recipe-tags.js';
-import type { RecipeListItem } from '../types/index.js';
-import type { RecipeEnvelope } from '../schemas/envelope.js';
+import { dbToEnvelope, type RecipeEnvelopeData } from '../schemas/envelope.js';
+import type { RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
 export type RecipeSaveSource =
   | { source_type: 'daily_plan_item'; source_id: string }
@@ -18,8 +16,7 @@ export type RecipeSaveResult = {
   source_recipe_id: string | null;
   daily_plan_item_id: string | null;
   created_at: string;
-  recipe_title: string;
-  recipe: RecipeEnvelope;
+  recipe_data: RecipeEnvelopeData;
 };
 
 export type RecipeSaveListItem = {
@@ -27,7 +24,7 @@ export type RecipeSaveListItem = {
   saved_at: string;
   source_recipe_id: string | null;
   daily_plan_item_id: string | null;
-  recipe: RecipeListItem;
+  recipe_data: RecipeEnvelopeData;
 };
 
 export interface PaginatedRecipeSaves {
@@ -147,8 +144,8 @@ export class RecipeSavesService {
       throw new BadRequestError('Failed to save recipe');
     }
 
-    const recipe = await recipeService.getRecipeById(copiedRecipe.id, userId);
-    if (!recipe) {
+    const recipeEnvelope = await recipeService.getRecipeById(copiedRecipe.id, userId);
+    if (!recipeEnvelope) {
       throw new BadRequestError('Failed to load saved recipe');
     }
 
@@ -158,8 +155,7 @@ export class RecipeSavesService {
       source_recipe_id: save.source_recipe_id,
       daily_plan_item_id: save.daily_plan_item_id,
       created_at: save.created_at,
-      recipe_title: copiedRecipe.title,
-      recipe,
+      recipe_data: recipeEnvelope.recipe,
     };
   }
 
@@ -229,50 +225,64 @@ export class RecipeSavesService {
       throw new BadRequestError('Failed to fetch saved recipes');
     }
 
-    const { data: media } = await supabaseAdmin
-      .from('recipe_media')
-      .select('recipe_id, media_type, url, name')
-      .in('recipe_id', recipeIds)
-      .order('position');
+    const [
+      { data: ingredients },
+      { data: steps },
+      { data: media },
+    ] = await Promise.all([
+      supabaseAdmin
+        .from('recipe_ingredients')
+        .select('*')
+        .in('recipe_id', recipeIds)
+        .order('position'),
+      supabaseAdmin
+        .from('recipe_steps')
+        .select('*')
+        .in('recipe_id', recipeIds)
+        .order('position'),
+      supabaseAdmin
+        .from('recipe_media')
+        .select('*')
+        .in('recipe_id', recipeIds)
+        .order('position'),
+    ]);
 
-    const mediaByRecipeId = new Map<
-      string,
-      Array<{ media_type: string; url: string; name: string | null }>
-    >();
-    if (media) {
-      for (const item of media) {
-        const existing = mediaByRecipeId.get(item.recipe_id) || [];
-        existing.push(item);
-        mediaByRecipeId.set(item.recipe_id, existing);
-      }
+    const ingredientsByRecipeId = new Map<string, RecipeIngredient[]>();
+    for (const item of ingredients ?? []) {
+      const existing = ingredientsByRecipeId.get(item.recipe_id) ?? [];
+      existing.push(item as RecipeIngredient);
+      ingredientsByRecipeId.set(item.recipe_id, existing);
     }
 
-    const recipeById = new Map<string, RecipeListItem>();
+    const stepsByRecipeId = new Map<string, RecipeStep[]>();
+    for (const item of steps ?? []) {
+      const existing = stepsByRecipeId.get(item.recipe_id) ?? [];
+      existing.push(item as RecipeStep);
+      stepsByRecipeId.set(item.recipe_id, existing);
+    }
+
+    const mediaByRecipeId = new Map<string, RecipeMedia[]>();
+    for (const item of media ?? []) {
+      const existing = mediaByRecipeId.get(item.recipe_id) ?? [];
+      existing.push(item as RecipeMedia);
+      mediaByRecipeId.set(item.recipe_id, existing);
+    }
+
+    const recipeDataById = new Map<string, RecipeEnvelopeData>();
     for (const recipe of recipes ?? []) {
-      recipeById.set(recipe.id, {
-        id: recipe.id,
-        title: recipe.title,
-        description: recipe.description,
-        calories: recipe.calories,
-        prep_time_minutes: recipe.prep_time_minutes,
-        cook_time_minutes: recipe.cook_time_minutes,
-        servings: recipe.servings,
-        tags: normalizeRecipeTags(recipe.tags ?? []),
-        cuisine: normalizeCuisine(recipe.cuisine),
-        source_type: recipe.source_type as 'manual' | 'url' | 'image' | 'ai',
-        created_at: recipe.created_at,
-        media: (mediaByRecipeId.get(recipe.id) || []).map((item) => ({
-          media_type: item.media_type as 'image' | 'video',
-          url: item.url,
-          name: item.name,
-        })),
-      });
+      const envelope = dbToEnvelope(
+        recipe,
+        ingredientsByRecipeId.get(recipe.id) ?? [],
+        stepsByRecipeId.get(recipe.id) ?? [],
+        mediaByRecipeId.get(recipe.id) ?? []
+      );
+      recipeDataById.set(recipe.id, envelope.recipe);
     }
 
     const recipeSaves: RecipeSaveListItem[] = [];
     for (const save of saves) {
-      const recipe = recipeById.get(save.recipe_id);
-      if (!recipe) {
+      const recipeData = recipeDataById.get(save.recipe_id);
+      if (!recipeData) {
         continue;
       }
       recipeSaves.push({
@@ -280,7 +290,7 @@ export class RecipeSavesService {
         saved_at: save.created_at,
         source_recipe_id: save.source_recipe_id,
         daily_plan_item_id: save.daily_plan_item_id,
-        recipe,
+        recipe_data: recipeData,
       });
     }
 

@@ -60,11 +60,10 @@ router.post('/', requireAuth, async (req, res: Response, next) => {
     res.status(201).json({
       id: result.id,
       recipe_id: result.recipe_id,
-      recipe_title: result.recipe_title,
       source_recipe_id: result.source_recipe_id,
       daily_plan_item_id: result.daily_plan_item_id,
       created_at: result.created_at,
-      recipe: result.recipe,
+      recipe_data: result.recipe_data,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {

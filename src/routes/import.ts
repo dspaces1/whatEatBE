@@ -27,6 +27,7 @@ router.post('/url', requireAuth, async (req, res: Response, next) => {
     res.json({
       extracted_from: result.extracted_from,
       warnings: result.warnings,
+      recipe_data: result.envelope.recipe,
       save_payload: result.envelope,
     });
   } catch (err) {
@@ -92,5 +93,4 @@ router.get('/jobs', requireAuth, async (req, res: Response, next) => {
 });
 
 export default router;
-
 
