@@ -3,6 +3,9 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { imageService } from './image.service.js';
+import { CANONICAL_DIETARY_LABELS, normalizeDietaryLabels } from '../utils/dietary-labels.js';
+import { CANONICAL_CUISINES, normalizeCuisine } from '../utils/cuisines.js';
+import { CANONICAL_RECIPE_TAGS, normalizeRecipeTags } from '../utils/recipe-tags.js';
 import {
   aiRecipeOutputSchema,
   wrapAIOutput,
@@ -25,9 +28,9 @@ const AI_RECIPE_JSON_SCHEMA = {
     calories: { type: ['integer', 'null'] },
     prep_time_minutes: { type: ['integer', 'null'] },
     cook_time_minutes: { type: ['integer', 'null'] },
-    tags: { type: ['array', 'null'], items: { type: 'string' } },
-    cuisine: { type: ['string', 'null'] },
-    dietary_labels: { type: ['array', 'null'], items: { type: 'string' } },
+    tags: { type: ['array', 'null'], items: { type: 'string', enum: CANONICAL_RECIPE_TAGS } },
+    cuisine: { type: ['string', 'null'], enum: [...CANONICAL_CUISINES, null] },
+    dietary_labels: { type: ['array', 'null'], items: { type: 'string', enum: CANONICAL_DIETARY_LABELS } },
     ingredients: {
       type: 'array',
       items: {
@@ -121,18 +124,24 @@ export class AIService {
       // Parse and validate the AI output
       const parsed = JSON.parse(content);
       const validated = aiRecipeOutputSchema.parse(parsed);
+      const normalized = {
+        ...validated,
+        tags: normalizeRecipeTags(validated.tags),
+        cuisine: normalizeCuisine(validated.cuisine),
+        dietary_labels: normalizeDietaryLabels(validated.dietary_labels),
+      };
 
       // Generate a hero image
       const image = await imageService.generateRecipeImage(
-        validated.title,
-        validated.description ?? undefined,
-        validated.cuisine ?? undefined
+        normalized.title,
+        normalized.description ?? undefined,
+        normalized.cuisine ?? undefined
       );
 
       // Wrap in envelope format
-      const envelope = wrapAIOutput(validated, image?.url);
+      const envelope = wrapAIOutput(normalized, image?.url);
 
-      logger.info({ title: validated.title }, 'Successfully generated recipe');
+      logger.info({ title: normalized.title }, 'Successfully generated recipe');
       return envelope;
     } catch (error) {
       logger.error({ error }, 'Failed to generate recipe');
@@ -260,14 +269,20 @@ export class AIService {
 
       const parsed = JSON.parse(content);
       const validated = aiRecipeOutputSchema.parse(parsed);
+      const normalized = {
+        ...validated,
+        tags: normalizeRecipeTags(validated.tags),
+        cuisine: normalizeCuisine(validated.cuisine),
+        dietary_labels: normalizeDietaryLabels(validated.dietary_labels),
+      };
 
       const image = await imageService.generateRecipeImage(
-        validated.title,
-        validated.description ?? undefined,
-        validated.cuisine ?? undefined
+        normalized.title,
+        normalized.description ?? undefined,
+        normalized.cuisine ?? undefined
       );
 
-      return wrapAIOutput(validated, image?.url);
+      return wrapAIOutput(normalized, image?.url);
     } catch (error) {
       logger.error({ error, theme }, 'Failed to generate themed recipe');
       return null;
@@ -303,8 +318,13 @@ Guidelines:
 - Estimate calories reasonably (not too precise)
 - Use common ingredients when possible, with occasional specialty items
 - Write clear, concise instructions
-- Include relevant tags for dietary info (vegan, gluten-free, etc.)
-- Specify the cuisine type when applicable
+- Tags must use this exact list: ${CANONICAL_RECIPE_TAGS.join(', ')}
+- Use "meal" for lunch/dinner mains
+- If a tag is not clearly applicable, omit it (return an empty array if none)
+- Dietary labels must use this exact list: ${CANONICAL_DIETARY_LABELS.join(', ')}
+- Only include dietary labels that are clearly applicable; otherwise return an empty array
+- Cuisine must use this exact list: ${CANONICAL_CUISINES.join(', ')}
+- If cuisine is unclear, return null
 - Keep ingredient lists between 5-15 items
 - Keep steps between 4-10 instructions
 
@@ -318,11 +338,17 @@ Output a JSON object with the recipe details.`;
     const parts: string[] = ['Generate a recipe'];
 
     if (preferences?.dietary_restrictions?.length) {
-      parts.push(`that is ${preferences.dietary_restrictions.join(', ')}`);
+      const normalized = normalizeDietaryLabels(preferences.dietary_restrictions);
+      const restrictions = normalized.length > 0 ? normalized : preferences.dietary_restrictions;
+      parts.push(`that is ${restrictions.join(', ')}`);
     }
 
     if (preferences?.preferred_cuisines?.length) {
-      const cuisine = preferences.preferred_cuisines[Math.floor(Math.random() * preferences.preferred_cuisines.length)];
+      const normalized = preferences.preferred_cuisines
+        .map((cuisine) => normalizeCuisine(cuisine))
+        .filter(Boolean) as string[];
+      const candidates = normalized.length > 0 ? normalized : preferences.preferred_cuisines;
+      const cuisine = candidates[Math.floor(Math.random() * candidates.length)];
       parts.push(`in ${cuisine} style`);
     }
 

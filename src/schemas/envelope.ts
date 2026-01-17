@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import type { Json } from '../types/supabase.js';
+import { normalizeDietaryLabels } from '../utils/dietary-labels.js';
+import { normalizeCuisine } from '../utils/cuisines.js';
+import { normalizeRecipeTags } from '../utils/recipe-tags.js';
 
 // ============================================================================
 // Recipe Envelope Schema
@@ -121,9 +124,9 @@ export function wrapAIOutput(aiRecipe: AIRecipeOutput, imageUrl?: string): Recip
       calories: aiRecipe.calories ?? null,
       prep_time_minutes: aiRecipe.prep_time_minutes ?? null,
       cook_time_minutes: aiRecipe.cook_time_minutes ?? null,
-      tags: aiRecipe.tags ?? [],
-      cuisine: aiRecipe.cuisine ?? null,
-      dietary_labels: aiRecipe.dietary_labels ?? [],
+      tags: normalizeRecipeTags(aiRecipe.tags),
+      cuisine: normalizeCuisine(aiRecipe.cuisine),
+      dietary_labels: normalizeDietaryLabels(aiRecipe.dietary_labels),
       source: { type: 'ai' },
       ingredients: aiRecipe.ingredients,
       steps: aiRecipe.steps,
@@ -150,9 +153,9 @@ export function envelopeToDbRecipe(envelope: RecipeEnvelope, userId: string | nu
     calories: recipe.calories,
     prep_time_minutes: recipe.prep_time_minutes,
     cook_time_minutes: recipe.cook_time_minutes,
-    tags: recipe.tags,
-    cuisine: recipe.cuisine,
-    dietary_labels: recipe.dietary_labels,
+    tags: normalizeRecipeTags(recipe.tags),
+    cuisine: normalizeCuisine(recipe.cuisine),
+    dietary_labels: normalizeDietaryLabels(recipe.dietary_labels),
     source_type: recipe.source.type,
     source_url: recipe.source.url ?? null,
     source_recipe_id: recipe.source.recipe_id ?? null,
@@ -241,9 +244,9 @@ export function dbToEnvelope(
       calories: recipe.calories,
       prep_time_minutes: recipe.prep_time_minutes,
       cook_time_minutes: recipe.cook_time_minutes,
-      tags: recipe.tags ?? [],
-      cuisine: recipe.cuisine,
-      dietary_labels: recipe.dietary_labels ?? [],
+      tags: normalizeRecipeTags(recipe.tags ?? []),
+      cuisine: normalizeCuisine(recipe.cuisine),
+      dietary_labels: normalizeDietaryLabels(recipe.dietary_labels ?? []),
       source: {
         type: recipe.source_type as 'manual' | 'url' | 'image' | 'ai',
         url: recipe.source_url,
@@ -313,9 +316,9 @@ export function legacyToEnvelope(legacy: LegacyCreateRecipe): RecipeEnvelope {
       calories: legacy.calories ?? null,
       prep_time_minutes: legacy.prep_time_minutes ?? null,
       cook_time_minutes: legacy.cook_time_minutes ?? null,
-      tags: legacy.tags ?? [],
-      cuisine: legacy.cuisine ?? null,
-      dietary_labels: legacy.dietary_labels ?? [],
+      tags: normalizeRecipeTags(legacy.tags),
+      cuisine: normalizeCuisine(legacy.cuisine),
+      dietary_labels: normalizeDietaryLabels(legacy.dietary_labels),
       source: {
         type: legacy.source_type ?? 'manual',
         url: legacy.source_url ?? null,

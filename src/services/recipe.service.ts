@@ -1,5 +1,8 @@
 import { supabaseAdmin } from '../config/supabase.js';
 import { logger } from '../utils/logger.js';
+import { normalizeDietaryLabels } from '../utils/dietary-labels.js';
+import { normalizeCuisine } from '../utils/cuisines.js';
+import { normalizeRecipeTags } from '../utils/recipe-tags.js';
 import {
   recipeEnvelopeSchema,
   legacyCreateRecipeSchema,
@@ -87,8 +90,8 @@ export class RecipeService {
       prep_time_minutes: r.prep_time_minutes,
       cook_time_minutes: r.cook_time_minutes,
       servings: r.servings,
-      tags: r.tags ?? [],
-      cuisine: r.cuisine,
+      tags: normalizeRecipeTags(r.tags ?? []),
+      cuisine: normalizeCuisine(r.cuisine),
       source_type: r.source_type as 'manual' | 'url' | 'image' | 'ai',
       created_at: r.created_at,
       media: (mediaByRecipeId.get(r.id) || []).map((m) => ({
@@ -264,9 +267,11 @@ export class RecipeService {
     if (input.calories !== undefined) updateData.calories = input.calories;
     if (input.prep_time_minutes !== undefined) updateData.prep_time_minutes = input.prep_time_minutes;
     if (input.cook_time_minutes !== undefined) updateData.cook_time_minutes = input.cook_time_minutes;
-    if (input.tags !== undefined) updateData.tags = input.tags;
-    if (input.cuisine !== undefined) updateData.cuisine = input.cuisine;
-    if (input.dietary_labels !== undefined) updateData.dietary_labels = input.dietary_labels;
+    if (input.tags !== undefined) updateData.tags = normalizeRecipeTags(input.tags);
+    if (input.cuisine !== undefined) updateData.cuisine = normalizeCuisine(input.cuisine);
+    if (input.dietary_labels !== undefined) {
+      updateData.dietary_labels = normalizeDietaryLabels(input.dietary_labels);
+    }
     if (input.metadata !== undefined) updateData.metadata = input.metadata;
 
     const { data: recipe, error: recipeError } = await supabaseAdmin
@@ -392,9 +397,9 @@ export class RecipeService {
         calories: source.calories,
         prep_time_minutes: source.prep_time_minutes,
         cook_time_minutes: source.cook_time_minutes,
-        tags: source.tags,
-        cuisine: source.cuisine,
-        dietary_labels: source.dietary_labels,
+        tags: normalizeRecipeTags(source.tags),
+        cuisine: normalizeCuisine(source.cuisine),
+        dietary_labels: normalizeDietaryLabels(source.dietary_labels),
         source_type: source.source_type,
         source_recipe_id: sourceRecipeId,
         metadata: source.metadata,

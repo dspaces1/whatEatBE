@@ -8,6 +8,9 @@ import { env } from '../config/env.js';
 import { recipeService } from './recipe.service.js';
 import { logger } from '../utils/logger.js';
 import { ImportError, RateLimitError } from '../utils/errors.js';
+import { CANONICAL_DIETARY_LABELS, normalizeDietaryLabels } from '../utils/dietary-labels.js';
+import { CANONICAL_CUISINES, normalizeCuisine } from '../utils/cuisines.js';
+import { CANONICAL_RECIPE_TAGS, normalizeRecipeTags } from '../utils/recipe-tags.js';
 import {
   aiRecipeOutputSchema,
   recipeEnvelopeSchema,
@@ -31,9 +34,9 @@ const IMPORT_RECIPE_JSON_SCHEMA = {
     calories: { type: ['integer', 'null'] },
     prep_time_minutes: { type: ['integer', 'null'] },
     cook_time_minutes: { type: ['integer', 'null'] },
-    tags: { type: ['array', 'null'], items: { type: 'string' } },
-    cuisine: { type: ['string', 'null'] },
-    dietary_labels: { type: ['array', 'null'], items: { type: 'string' } },
+    tags: { type: ['array', 'null'], items: { type: 'string', enum: CANONICAL_RECIPE_TAGS } },
+    cuisine: { type: ['string', 'null'], enum: [...CANONICAL_CUISINES, null] },
+    dietary_labels: { type: ['array', 'null'], items: { type: 'string', enum: CANONICAL_DIETARY_LABELS } },
     ingredients: {
       type: 'array',
       items: {
@@ -342,7 +345,7 @@ export class ImportService {
           },
           {
             role: 'user',
-            content: `Hard requirements:\n- Title, ingredients, and steps MUST be grounded in the page content.\n- Do NOT invent ingredients or steps that are not present.\n\nSoft requirements (may estimate if missing):\n- description, servings, calories, prep_time_minutes, cook_time_minutes, tags, cuisine, dietary_labels.\n- If unknown, estimate conservatively using typical values; if truly impossible, use null (or empty arrays for tags/dietary_labels).\n\nImage is optional and should NOT be output.\n\nNormalization:\n- Times -> integer minutes\n- Calories -> per-serving integer\n- Keep ingredient/step order from the page\n- Ignore ads/nav/comments\n- If no recipe exists, return empty ingredients/steps and title "Unknown Recipe"\n\nExtract a single recipe from this webpage.\n\nURL: ${sourceUrl}\n\nCONTENT:\n${text}`,
+            content: `Hard requirements:\n- Title, ingredients, and steps MUST be grounded in the page content.\n- Do NOT invent ingredients or steps that are not present.\n\nSoft requirements (may estimate if missing):\n- description, servings, calories, prep_time_minutes, cook_time_minutes, tags, cuisine, dietary_labels.\n- tags must use this exact list: ${CANONICAL_RECIPE_TAGS.join(', ')}\n- dietary_labels must use this exact list: ${CANONICAL_DIETARY_LABELS.join(', ')}\n- cuisine must use this exact list: ${CANONICAL_CUISINES.join(', ')}\n- If unknown, estimate conservatively using typical values; if truly impossible, use null (or empty arrays for tags/dietary_labels).\n\nImage is optional and should NOT be output.\n\nNormalization:\n- Times -> integer minutes\n- Calories -> per-serving integer\n- Keep ingredient/step order from the page\n- Ignore ads/nav/comments\n- If no recipe exists, return empty ingredients/steps and title "Unknown Recipe"\n\nExtract a single recipe from this webpage.\n\nURL: ${sourceUrl}\n\nCONTENT:\n${text}`,
           },
         ],
         response_format: {
@@ -386,9 +389,9 @@ export class ImportService {
           calories: validated.calories ?? null,
           prep_time_minutes: validated.prep_time_minutes ?? null,
           cook_time_minutes: validated.cook_time_minutes ?? null,
-          tags: validated.tags ?? [],
-          cuisine: validated.cuisine ?? null,
-          dietary_labels: validated.dietary_labels ?? [],
+          tags: normalizeRecipeTags(validated.tags),
+          cuisine: normalizeCuisine(validated.cuisine),
+          dietary_labels: normalizeDietaryLabels(validated.dietary_labels),
           ingredients: validated.ingredients.map((ing) => ing.raw_text),
           steps: validated.steps.map((step) => step.instruction),
           media: [],
@@ -1031,15 +1034,6 @@ function normalizeTags(keywords: unknown, categories: unknown): string[] {
   return Array.from(tags).filter(Boolean).map((item) => truncate(item, 50));
 }
 
-function normalizeDietaryLabels(value: unknown): string[] {
-  const labels = new Set<string>();
-  for (const item of normalizeStringList(value)) {
-    const cleaned = item.includes('/') ? item.split('/').pop() ?? item : item;
-    labels.add(truncate(cleaned.replace(/[_-]/g, ' '), 50));
-  }
-  return Array.from(labels);
-}
-
 function parseServings(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value);
   if (typeof value === 'string') {
@@ -1255,9 +1249,9 @@ function sanitizeRecipeData(data: PartialRecipeData): PartialRecipeData {
     description: data.description ? truncate(data.description, 2000) : null,
     ingredients: data.ingredients.map((item) => truncate(stripBullet(item), 500)).filter(Boolean),
     steps: data.steps.map((item) => truncate(stripBullet(item), 2000)).filter(Boolean),
-    tags: data.tags.map((tag) => truncate(tag, 50)),
-    cuisine: data.cuisine ? truncate(data.cuisine, 100) : null,
-    dietary_labels: data.dietary_labels.map((label) => truncate(label, 50)),
+    tags: normalizeRecipeTags(data.tags).map((tag) => truncate(tag, 50)),
+    cuisine: normalizeCuisine(data.cuisine),
+    dietary_labels: normalizeDietaryLabels(data.dietary_labels).map((label) => truncate(label, 50)),
     media: data.media
       .map((item) => ({ ...item, url: item.url }))
       .filter((item) => item.url),

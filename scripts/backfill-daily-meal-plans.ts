@@ -1,6 +1,9 @@
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { logger } from '../src/utils/logger.js';
+import { normalizeDietaryLabels } from '../src/utils/dietary-labels.js';
+import { normalizeCuisine } from '../src/utils/cuisines.js';
+import { normalizeRecipeTags } from '../src/utils/recipe-tags.js';
 import type { Database } from '../src/types/supabase.js';
 
 type SuggestionRow = {
@@ -230,9 +233,9 @@ const buildRecipeInsert = (recipeData: Record<string, unknown>) => {
     calories: toNumberOrNull(recipeData.calories),
     prep_time_minutes: toNumberOrNull(recipeData.prep_time_minutes),
     cook_time_minutes: toNumberOrNull(recipeData.cook_time_minutes),
-    tags: toStringArray(recipeData.tags),
-    cuisine: typeof recipeData.cuisine === 'string' ? recipeData.cuisine : null,
-    dietary_labels: toStringArray(recipeData.dietary_labels),
+    tags: normalizeRecipeTags(recipeData.tags),
+    cuisine: normalizeCuisine(recipeData.cuisine),
+    dietary_labels: normalizeDietaryLabels(recipeData.dietary_labels),
     source_type: 'ai',
     source_url: null,
     source_recipe_id: null,

@@ -7,9 +7,13 @@ Short context for future work on daily AI recipes and cron jobs.
 - Legacy: `daily_suggestions` is no longer written by the daily plan flow (kept for historical data only).
 - Daily refresh uses historical `daily_meal_plan_items` and excludes items already saved by the requesting user.
 - Backfill: `npm run backfill:daily-plans` migrates legacy `daily_suggestions` into `daily_meal_plans`/`daily_meal_plan_items` and `recipe_saves` (requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
+- Backfill: `npm run backfill:normalize-recipes` rewrites `recipes.cuisine`, `recipes.dietary_labels`, and `recipes.tags` to canonical snake_case values (requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
 - Manual generation endpoint `POST /api/v1/daily/generate` is admin-only (env: `DAILY_GENERATION_ADMIN_EMAILS` or `DAILY_GENERATION_ADMIN_USER_IDS`).
 - User refresh is `GET /api/v1/daily/refresh?count_per_meal=2`, non-persistent, returns random historical suggestions per meal type.
 - Import URL preview order: JSON-LD, ChatGPT share parser, Readability (jsdom), heuristics, then AI fallback (optionally using extracted text); returns a recipe envelope without persisting until `/recipes` is called.
+- Dietary labels are normalized to this canonical snake_case list in AI generation, URL extraction, and DB writes/reads: vegan, vegetarian, gluten_free, dairy_free, nut_free, shellfish_free, keto_friendly, high_protein.
+- Cuisine is normalized to this canonical snake_case list in AI generation, URL extraction, and DB writes/reads: american, mexican, italian, chinese, japanese, korean, thai, vietnamese, indian, mediterranean, middle_eastern, french, caribbean, soul_food.
+- Tags are normalized to this canonical snake_case list in AI generation, URL extraction, and DB writes/reads: breakfast, meal, dessert, snack.
 - Cron job entry: `npm run jobs:daily` runs `scripts/daily-generation.sh` -> `dist/jobs/daily-generation.js`.
   - Script loads `.env` if present; Render injects env vars directly (no `.env`).
 - Auth: API auth uses Supabase access tokens verified via JWKS (RS256) against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` with `apikey: ${SUPABASE_ANON_KEY}`; requires `aud=authenticated` and matching issuer (`${SUPABASE_URL}/auth/v1`). `SUPABASE_JWT_SECRET` is no longer used.

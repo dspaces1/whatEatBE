@@ -7,6 +7,9 @@ import { recipeService } from '../services/recipe.service.js';
 import { dbToEnvelope } from '../schemas/envelope.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
+import { normalizeDietaryLabels } from '../utils/dietary-labels.js';
+import { CANONICAL_CUISINES, normalizeCuisine } from '../utils/cuisines.js';
+import { CANONICAL_RECIPE_TAGS, normalizeRecipeTags } from '../utils/recipe-tags.js';
 import type { RecipeListItem, Recipe, RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
 const router = Router();
@@ -45,15 +48,30 @@ router.get('/', async (req: Request, res: Response, next) => {
 
     // Apply filters
     if (filters.cuisine) {
-      query = query.eq('cuisine', filters.cuisine);
+      const rawCuisine = filters.cuisine.trim();
+      const normalizedCuisine = normalizeCuisine(rawCuisine);
+      const cuisines = Array.from(new Set([rawCuisine, normalizedCuisine].filter(Boolean) as string[]));
+      if (cuisines.length === 1) {
+        query = query.eq('cuisine', cuisines[0]);
+      } else if (cuisines.length > 1) {
+        query = query.in('cuisine', cuisines);
+      }
     }
     if (filters.tags) {
-      const tags = filters.tags.split(',').map((t) => t.trim());
-      query = query.overlaps('tags', tags);
+      const rawTags = filters.tags.split(',').map((t) => t.trim()).filter(Boolean);
+      const normalizedTags = normalizeRecipeTags(rawTags);
+      const tags = Array.from(new Set([...rawTags, ...normalizedTags]));
+      if (tags.length > 0) {
+        query = query.overlaps('tags', tags);
+      }
     }
     if (filters.dietary_labels) {
-      const labels = filters.dietary_labels.split(',').map((l) => l.trim());
-      query = query.overlaps('dietary_labels', labels);
+      const rawLabels = filters.dietary_labels.split(',').map((l) => l.trim()).filter(Boolean);
+      const normalizedLabels = normalizeDietaryLabels(rawLabels);
+      const labels = Array.from(new Set([...rawLabels, ...normalizedLabels]));
+      if (labels.length > 0) {
+        query = query.overlaps('dietary_labels', labels);
+      }
     }
 
     const { data: recipes, error, count } = await query;
@@ -95,8 +113,8 @@ router.get('/', async (req: Request, res: Response, next) => {
       prep_time_minutes: r.prep_time_minutes,
       cook_time_minutes: r.cook_time_minutes,
       servings: r.servings,
-      tags: r.tags ?? [],
-      cuisine: r.cuisine,
+      tags: normalizeRecipeTags(r.tags ?? []),
+      cuisine: normalizeCuisine(r.cuisine),
       source_type: r.source_type as 'manual' | 'url' | 'image' | 'ai',
       created_at: r.created_at,
       media: (mediaByRecipeId.get(r.id) || []).map((m) => ({
@@ -249,7 +267,11 @@ router.get('/meta/cuisines', async (_req: Request, res: Response, next) => {
       throw new Error(`Failed to fetch cuisines: ${error.message}`);
     }
 
-    const cuisines = [...new Set(data?.map((r) => r.cuisine).filter(Boolean))];
+    const normalized = (data ?? [])
+      .map((r) => normalizeCuisine(r.cuisine))
+      .filter(Boolean) as string[];
+    const cuisineSet = new Set(normalized);
+    const cuisines = CANONICAL_CUISINES.filter((cuisine) => cuisineSet.has(cuisine));
     res.json({ cuisines });
   } catch (err) {
     next(err);
@@ -272,9 +294,11 @@ router.get('/meta/tags', async (_req: Request, res: Response, next) => {
       throw new Error(`Failed to fetch tags: ${error.message}`);
     }
 
-    const allTags = data?.flatMap((r) => r.tags ?? []) ?? [];
-    const uniqueTags = [...new Set(allTags)];
-    res.json({ tags: uniqueTags });
+    const normalized = (data ?? [])
+      .flatMap((r) => normalizeRecipeTags(r.tags ?? []));
+    const tagSet = new Set(normalized);
+    const tags = CANONICAL_RECIPE_TAGS.filter((tag) => tagSet.has(tag));
+    res.json({ tags });
   } catch (err) {
     next(err);
   }
