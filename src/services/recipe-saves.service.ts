@@ -3,6 +3,7 @@ import { recipeService } from './recipe.service.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { dbToEnvelope, type RecipeEnvelopeData } from '../schemas/envelope.js';
+import { withRecipeOwnership, type RecipePayload } from '../utils/recipe-payload.js';
 import type { RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
 export type RecipeSaveSource =
@@ -16,7 +17,7 @@ export type RecipeSaveResult = {
   source_recipe_id: string | null;
   daily_plan_item_id: string | null;
   created_at: string;
-  recipe_data: RecipeEnvelopeData;
+  recipe_data: RecipePayload<RecipeEnvelopeData>;
 };
 
 export type RecipeSaveListItem = {
@@ -24,7 +25,7 @@ export type RecipeSaveListItem = {
   saved_at: string;
   source_recipe_id: string | null;
   daily_plan_item_id: string | null;
-  recipe_data: RecipeEnvelopeData;
+  recipe_data: RecipePayload<RecipeEnvelopeData>;
 };
 
 export interface PaginatedRecipeSaves {
@@ -144,8 +145,8 @@ export class RecipeSavesService {
       throw new BadRequestError('Failed to save recipe');
     }
 
-    const recipeEnvelope = await recipeService.getRecipeById(copiedRecipe.id, userId);
-    if (!recipeEnvelope) {
+    const recipeResult = await recipeService.getRecipeById(copiedRecipe.id, userId);
+    if (!recipeResult) {
       throw new BadRequestError('Failed to load saved recipe');
     }
 
@@ -155,7 +156,7 @@ export class RecipeSavesService {
       source_recipe_id: save.source_recipe_id,
       daily_plan_item_id: save.daily_plan_item_id,
       created_at: save.created_at,
-      recipe_data: recipeEnvelope.recipe,
+      recipe_data: withRecipeOwnership(recipeResult.envelope.recipe, { isUserOwned: true }),
     };
   }
 
@@ -290,7 +291,7 @@ export class RecipeSavesService {
         saved_at: save.created_at,
         source_recipe_id: save.source_recipe_id,
         daily_plan_item_id: save.daily_plan_item_id,
-        recipe_data: recipeData,
+        recipe_data: withRecipeOwnership(recipeData, { isUserOwned: true }),
       });
     }
 

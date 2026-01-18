@@ -171,6 +171,16 @@ export interface ApiError {
 }
 
 // ============================================================================
+// Recipe Ownership (for response payloads)
+// ============================================================================
+
+export interface RecipeOwnership {
+  is_user_owned: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+}
+
+// ============================================================================
 // Recipe List Item (for feed/list views)
 // ============================================================================
 
@@ -186,6 +196,8 @@ export interface RecipeListItem {
   cuisine: string | null;
   source_type: 'manual' | 'url' | 'image' | 'ai';
   created_at: string;
+  ownership: RecipeOwnership;
+  editable_recipe_id: string | null;
   media: Array<{
     media_type: 'image' | 'video';
     url: string;

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { recipeService } from '../services/recipe.service.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
+import { withRecipeOwnership } from '../utils/recipe-payload.js';
 
 const router = Router();
 
@@ -42,12 +43,16 @@ router.get('/:id', requireAuth, async (req, res: Response, next) => {
     const authReq = req as AuthenticatedRequest;
     const { id } = req.params;
 
-    const envelope = await recipeService.getRecipeById(id, authReq.userId);
-    if (!envelope) {
+    const result = await recipeService.getRecipeById(id, authReq.userId);
+    if (!result) {
       throw new NotFoundError('Recipe');
     }
 
-    res.json({ recipe_data: envelope.recipe });
+    res.json({
+      recipe_data: withRecipeOwnership(result.envelope.recipe, {
+        isUserOwned: result.isUserOwned,
+      }),
+    });
   } catch (err) {
     next(err);
   }

@@ -16,6 +16,7 @@ import {
   type LegacyCreateRecipe,
 } from '../schemas/envelope.js';
 import type { Recipe, RecipeIngredient, RecipeStep, RecipeMedia, RecipeListItem } from '../types/index.js';
+import { withRecipeOwnership } from '../utils/recipe-payload.js';
 
 export interface PaginatedRecipes {
   recipes: RecipeListItem[];
@@ -82,24 +83,28 @@ export class RecipeService {
       }
     }
 
-    const recipesWithMedia: RecipeListItem[] = recipes.map((r) => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      calories: r.calories,
-      prep_time_minutes: r.prep_time_minutes,
-      cook_time_minutes: r.cook_time_minutes,
-      servings: r.servings,
-      tags: normalizeRecipeTags(r.tags ?? []),
-      cuisine: normalizeCuisine(r.cuisine),
-      source_type: r.source_type as 'manual' | 'url' | 'image' | 'ai',
-      created_at: r.created_at,
-      media: (mediaByRecipeId.get(r.id) || []).map((m) => ({
-        media_type: m.media_type as 'image' | 'video',
-        url: m.url,
-        name: m.name,
-      })),
-    }));
+    const recipesWithMedia: RecipeListItem[] = recipes.map((r) => {
+      const baseItem = {
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        calories: r.calories,
+        prep_time_minutes: r.prep_time_minutes,
+        cook_time_minutes: r.cook_time_minutes,
+        servings: r.servings,
+        tags: normalizeRecipeTags(r.tags ?? []),
+        cuisine: normalizeCuisine(r.cuisine),
+        source_type: r.source_type as 'manual' | 'url' | 'image' | 'ai',
+        created_at: r.created_at,
+        media: (mediaByRecipeId.get(r.id) || []).map((m) => ({
+          media_type: m.media_type as 'image' | 'video',
+          url: m.url,
+          name: m.name,
+        })),
+      };
+
+      return withRecipeOwnership(baseItem, { isUserOwned: true });
+    });
 
     return {
       recipes: recipesWithMedia,
@@ -115,7 +120,10 @@ export class RecipeService {
   /**
    * Get a single recipe by ID with full details
    */
-  async getRecipeById(recipeId: string, userId: string): Promise<RecipeEnvelope | null> {
+  async getRecipeById(
+    recipeId: string,
+    userId: string
+  ): Promise<{ envelope: RecipeEnvelope; isUserOwned: boolean } | null> {
     const { data: recipe, error } = await supabaseAdmin
       .from('recipes')
       .select('*')
@@ -128,7 +136,8 @@ export class RecipeService {
     }
 
     // Check access: user owns it OR it's a global recipe
-    if (recipe.user_id !== null && recipe.user_id !== userId) {
+    const isUserOwned = recipe.user_id === userId;
+    if (recipe.user_id !== null && !isUserOwned) {
       return null;
     }
 
@@ -155,12 +164,15 @@ export class RecipeService {
         .order('position'),
     ]);
 
-    return dbToEnvelope(
-      recipe as Recipe,
-      (ingredients ?? []) as RecipeIngredient[],
-      (steps ?? []) as RecipeStep[],
-      (media ?? []) as RecipeMedia[]
-    );
+    return {
+      envelope: dbToEnvelope(
+        recipe as Recipe,
+        (ingredients ?? []) as RecipeIngredient[],
+        (steps ?? []) as RecipeStep[],
+        (media ?? []) as RecipeMedia[]
+      ),
+      isUserOwned,
+    };
   }
 
   /**

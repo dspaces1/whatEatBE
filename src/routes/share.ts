@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { shareService } from '../services/share.service.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
+import { withRecipeOwnership } from '../utils/recipe-payload.js';
 
 const router = Router();
 
@@ -28,7 +29,7 @@ router.get('/:token', async (req: Request, res: Response, next) => {
       throw new NotFoundError('Shared recipe');
     }
 
-    res.json({ recipe_data: envelope.recipe });
+    res.json({ recipe_data: withRecipeOwnership(envelope.recipe, { isUserOwned: false }) });
   } catch (err) {
     next(err);
   }

@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js';
 import { normalizeDietaryLabels } from '../utils/dietary-labels.js';
 import { CANONICAL_CUISINES, normalizeCuisine } from '../utils/cuisines.js';
 import { CANONICAL_RECIPE_TAGS, normalizeRecipeTags } from '../utils/recipe-tags.js';
+import { withRecipeOwnership } from '../utils/recipe-payload.js';
 import type { RecipeListItem, Recipe, RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
 
 const router = Router();
@@ -103,24 +104,28 @@ router.get('/', async (req: Request, res: Response, next) => {
       }
     }
 
-    const recipesWithMedia: RecipeListItem[] = recipes.map((r) => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      calories: r.calories,
-      prep_time_minutes: r.prep_time_minutes,
-      cook_time_minutes: r.cook_time_minutes,
-      servings: r.servings,
-      tags: normalizeRecipeTags(r.tags ?? []),
-      cuisine: normalizeCuisine(r.cuisine),
-      source_type: r.source_type as 'manual' | 'url' | 'image' | 'ai',
-      created_at: r.created_at,
-      media: (mediaByRecipeId.get(r.id) || []).map((m) => ({
-        media_type: m.media_type as 'image' | 'video',
-        url: m.url,
-        name: m.name,
-      })),
-    }));
+    const recipesWithMedia: RecipeListItem[] = recipes.map((r) => {
+      const baseItem = {
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        calories: r.calories,
+        prep_time_minutes: r.prep_time_minutes,
+        cook_time_minutes: r.cook_time_minutes,
+        servings: r.servings,
+        tags: normalizeRecipeTags(r.tags ?? []),
+        cuisine: normalizeCuisine(r.cuisine),
+        source_type: r.source_type as 'manual' | 'url' | 'image' | 'ai',
+        created_at: r.created_at,
+        media: (mediaByRecipeId.get(r.id) || []).map((m) => ({
+          media_type: m.media_type as 'image' | 'video',
+          url: m.url,
+          name: m.name,
+        })),
+      };
+
+      return withRecipeOwnership(baseItem, { isUserOwned: false });
+    });
 
     res.json({
       recipes: recipesWithMedia,
@@ -175,7 +180,7 @@ router.get('/:id', async (req: Request, res: Response, next) => {
       (media ?? []) as RecipeMedia[]
     );
 
-    res.json({ recipe_data: envelope.recipe });
+    res.json({ recipe_data: withRecipeOwnership(envelope.recipe, { isUserOwned: false }) });
   } catch (err) {
     next(err);
   }

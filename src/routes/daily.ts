@@ -6,6 +6,7 @@ import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { dailyGenerationService } from '../services/daily-generation.service.js';
 import { dbToEnvelope, type RecipeEnvelope } from '../schemas/envelope.js';
 import type { Recipe, RecipeIngredient, RecipeStep, RecipeMedia } from '../types/index.js';
+import { withRecipeOwnership, type RecipePayload } from '../utils/recipe-payload.js';
 
 const router = Router();
 
@@ -20,7 +21,7 @@ const refreshSchema = z.object({
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'dessert'] as const;
 type MealType = typeof MEAL_TYPES[number];
 
-type SuggestionRecipeData = RecipeEnvelope['recipe'];
+type SuggestionRecipeData = RecipePayload<RecipeEnvelope['recipe']>;
 
 type SuggestionRow = {
   id: string;
@@ -62,8 +63,8 @@ const pickRandom = <T,>(items: T[], count: number): T[] => {
 
 const buildRecipeDataById = async (
   recipeIds: string[]
-): Promise<Map<string, SuggestionRecipeData>> => {
-  const dataById = new Map<string, SuggestionRecipeData>();
+): Promise<Map<string, RecipeEnvelope['recipe']>> => {
+  const dataById = new Map<string, RecipeEnvelope['recipe']>();
   if (recipeIds.length === 0) {
     return dataById;
   }
@@ -233,7 +234,7 @@ const buildRefreshSuggestions = async (
     const planMeta = planById.get(item.plan_id);
     return {
       id: item.id,
-      recipe_data: recipeData,
+      recipe_data: withRecipeOwnership(recipeData, { isUserOwned: false }),
       generated_at: planMeta?.created_at ?? item.created_at,
       saved_recipe_id: null,
       run_id: item.plan_id,
@@ -335,13 +336,17 @@ router.get('/suggestions', requireAuth, async (req, res: Response, next) => {
         throw new BadRequestError('Failed to resolve suggestion recipes');
       }
 
+      const savedRecipeId = savedByItemId.get(item.id) ?? null;
       suggestions.push({
         id: item.id,
         user_id: authReq.userId,
-        recipe_data: recipeData,
+        recipe_data: withRecipeOwnership(recipeData, {
+          isUserOwned: false,
+          editableRecipeId: savedRecipeId,
+        }),
         generated_at: latestPlan.created_at,
         expires_at: expiresAt.toISOString(),
-        saved_recipe_id: savedByItemId.get(item.id) ?? null,
+        saved_recipe_id: savedRecipeId,
         run_id: latestPlan.id,
         trigger_source: latestPlan.trigger_source,
         rank: item.rank,
@@ -413,7 +418,7 @@ router.post('/generate', requireAuth, requireDailyGenerationAdmin, async (req, r
       suggestions.push({
         id: item.id,
         user_id: authReq.userId,
-        recipe_data: recipeData,
+        recipe_data: withRecipeOwnership(recipeData, { isUserOwned: false }),
         generated_at: plan.created_at,
         expires_at: expiresAt.toISOString(),
         saved_recipe_id: null,

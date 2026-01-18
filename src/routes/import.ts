@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { BadRequestError, NotFoundError } from '../utils/errors.js';
 import { importService } from '../services/import.service.js';
+import { withRecipeOwnership } from '../utils/recipe-payload.js';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ router.post('/url', requireAuth, async (req, res: Response, next) => {
     res.json({
       extracted_from: result.extracted_from,
       warnings: result.warnings,
-      recipe_data: result.envelope.recipe,
+      recipe_data: withRecipeOwnership(result.envelope.recipe, { isUserOwned: false }),
       save_payload: result.envelope,
     });
   } catch (err) {
@@ -93,4 +94,3 @@ router.get('/jobs', requireAuth, async (req, res: Response, next) => {
 });
 
 export default router;
-
