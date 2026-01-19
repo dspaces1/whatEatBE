@@ -21,7 +21,7 @@ export type RecipeSaveResult = {
 };
 
 export type RecipeSaveListItem = {
-  id: string | null;
+  id: string;
   saved_at: string;
   source_recipe_id: string | null;
   daily_plan_item_id: string | null;
@@ -324,7 +324,7 @@ export class RecipeSavesService {
         continue;
       }
       recipeSaves.push({
-        id: item.kind === 'save' ? item.save_id : null,
+        id: item.kind === 'save' ? item.save_id : item.recipe_id,
         saved_at: item.saved_at,
         source_recipe_id: item.source_recipe_id,
         daily_plan_item_id: item.daily_plan_item_id,

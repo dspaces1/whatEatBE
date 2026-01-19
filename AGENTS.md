@@ -9,9 +9,10 @@ Short context for future work on daily AI recipes and cron jobs.
 - `GET /api/v1/daily/suggestions` falls back to refresh-style historical picks when no completed plan exists for the day.
 - Backfill: `npm run backfill:daily-plans` migrates legacy `daily_suggestions` into `daily_meal_plans`/`daily_meal_plan_items` and `recipe_saves` (requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
 - Backfill: `npm run backfill:normalize-recipes` rewrites `recipes.cuisine`, `recipes.dietary_labels`, and `recipes.tags` to canonical snake_case values (requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
+- Backfill: `npm run backfill:recipe-saves` creates missing `recipe_saves` rows for user-owned recipes (uses recipe `created_at` for ordering; requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; uses `.env`).
 - Manual generation endpoint `POST /api/v1/daily/generate` is admin-only (env: `DAILY_GENERATION_ADMIN_EMAILS` or `DAILY_GENERATION_ADMIN_USER_IDS`).
 - User refresh is `GET /api/v1/daily/refresh?count_per_meal=2`, non-persistent, returns random historical suggestions per meal type.
-- Recipe saves use `GET /api/v1/recipe-saves` (returns saved copies + user-owned recipes; `id` is null when not saved, `is_saved` flags entries), `POST /api/v1/recipe-saves` (source_type: daily_plan_item | recipe | share, returns `recipe_data`), and `DELETE /api/v1/recipe-saves/:id`.
+- Recipe saves use `GET /api/v1/recipe-saves` (returns saved copies + user-owned recipes; `id` is the save id for saved copies or the recipe id for owned items, `is_saved` flags entries), `POST /api/v1/recipe-saves` (source_type: daily_plan_item | recipe | share, returns `recipe_data`), and `DELETE /api/v1/recipe-saves/:id`.
 - Recipe payloads now include `ownership` (is_user_owned/can_edit/can_delete) and `editable_recipe_id` to signal editability without exposing user ids.
 - Import URL preview order: JSON-LD, ChatGPT share parser, Readability (jsdom), heuristics, then AI fallback (optionally using extracted text); returns a recipe envelope without persisting until `/recipes` is called.
 - Dietary labels are normalized to this canonical snake_case list in AI generation, URL extraction, and DB writes/reads: vegan, vegetarian, gluten_free, dairy_free, nut_free, shellfish_free, keto_friendly, high_protein.

@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "jobs:daily": "bash scripts/daily-generation.sh",
     "backfill:daily-plans": "tsx --env-file=.env scripts/backfill-daily-meal-plans.ts",
-    "backfill:normalize-recipes": "tsx --env-file=.env scripts/backfill-normalize-recipes.ts"
+    "backfill:normalize-recipes": "tsx --env-file=.env scripts/backfill-normalize-recipes.ts",
+    "backfill:recipe-saves": "tsx --env-file=.env scripts/backfill-recipe-saves.ts"
   },
   "dependencies": {
     "@mozilla/readability": "^0.4.4",
