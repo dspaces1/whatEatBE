@@ -6,6 +6,7 @@ import { ForbiddenError } from '../utils/errors.js';
 export interface AuthenticatedRequest extends Request {
   userId: string;
   userEmail?: string;
+  accessToken?: string;
 }
 
 interface SupabaseJwtPayload extends JWTPayload {
@@ -58,6 +59,7 @@ export const requireAuth = async (
     (req as AuthenticatedRequest).userId = payload.sub;
     (req as AuthenticatedRequest).userEmail =
       typeof payload.email === 'string' ? payload.email : undefined;
+    (req as AuthenticatedRequest).accessToken = token;
 
     next();
   } catch (error) {
@@ -140,4 +142,3 @@ export const optionalAuth = async (
     next();
   }
 };
-

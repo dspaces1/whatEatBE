@@ -1,11 +1,12 @@
 import crypto from 'crypto';
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { supabaseAdmin } from '../config/supabase.js';
+import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { BadRequestError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
+import type { Database } from '../types/supabase.js';
 
 const router = Router();
 
@@ -58,9 +59,29 @@ router.post('/recipe-images', requireAuth, async (req, res: Response, next) => {
     const fileName = `${baseName}-${crypto.randomUUID()}.${extension}`;
     const path = `recipe-images/${authReq.userId}/${fileName}`;
 
-    const { data, error } = await supabaseAdmin.storage
-      .from(env.SUPABASE_STORAGE_BUCKET)
-      .createSignedUploadUrl(path);
+    if (!authReq.accessToken) {
+      throw new BadRequestError('Missing access token');
+    }
+
+    const supabaseUser = createClient<Database>(
+      env.SUPABASE_URL,
+      env.SUPABASE_ANON_KEY,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${authReq.accessToken}`,
+          },
+        },
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      }
+    );
+
+    const storage = supabaseUser.storage.from(env.SUPABASE_STORAGE_BUCKET);
+    const { data, error } = await storage.createSignedUploadUrl(path);
 
     if (error || !data?.signedUrl) {
       logger.error(
@@ -68,6 +89,7 @@ router.post('/recipe-images', requireAuth, async (req, res: Response, next) => {
           error,
           bucket: env.SUPABASE_STORAGE_BUCKET,
           path,
+          userId: authReq.userId,
         },
         'Failed to create signed upload URL'
       );
@@ -77,9 +99,7 @@ router.post('/recipe-images', requireAuth, async (req, res: Response, next) => {
       });
     }
 
-    const { data: publicData } = supabaseAdmin.storage
-      .from(env.SUPABASE_STORAGE_BUCKET)
-      .getPublicUrl(path);
+    const { data: publicData } = storage.getPublicUrl(path);
 
     res.status(201).json({
       upload_url: data.signedUrl,
