@@ -21,11 +21,12 @@ export type RecipeSaveResult = {
 };
 
 export type RecipeSaveListItem = {
-  id: string;
+  id: string | null;
   saved_at: string;
   source_recipe_id: string | null;
   daily_plan_item_id: string | null;
   recipe_data: RecipePayload<RecipeEnvelopeData>;
+  is_saved: boolean;
 };
 
 export interface PaginatedRecipeSaves {
@@ -191,30 +192,66 @@ export class RecipeSavesService {
   async listRecipeSaves(userId: string, page: number, limit: number): Promise<PaginatedRecipeSaves> {
     const offset = (page - 1) * limit;
 
-    const { data: saves, error, count } = await supabaseAdmin
+    const { data: saves, error } = await supabaseAdmin
       .from('recipe_saves')
-      .select('id, recipe_id, source_recipe_id, daily_plan_item_id, created_at', { count: 'exact' })
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .select('id, recipe_id, source_recipe_id, daily_plan_item_id, created_at')
+      .eq('user_id', userId);
 
     if (error) {
       throw new BadRequestError('Failed to fetch recipe saves');
     }
 
-    if (!saves || saves.length === 0) {
+    const saveItems = (saves ?? []).map((save) => ({
+      kind: 'save' as const,
+      save_id: save.id as string,
+      recipe_id: save.recipe_id as string,
+      source_recipe_id: save.source_recipe_id as string | null,
+      daily_plan_item_id: save.daily_plan_item_id as string | null,
+      saved_at: save.created_at as string,
+    }));
+
+    const savedRecipeIds = new Set(saveItems.map((save) => save.recipe_id));
+    const { data: ownedRecipes, error: ownedError } = await supabaseAdmin
+      .from('recipes')
+      .select('id, created_at')
+      .eq('user_id', userId)
+      .is('deleted_at', null);
+
+    if (ownedError) {
+      throw new BadRequestError('Failed to fetch recipes');
+    }
+
+    const ownedItems = (ownedRecipes ?? [])
+      .filter((recipe) => !savedRecipeIds.has(recipe.id))
+      .map((recipe) => ({
+        kind: 'owned' as const,
+        recipe_id: recipe.id as string,
+        saved_at: recipe.created_at as string,
+        source_recipe_id: null,
+        daily_plan_item_id: null,
+      }));
+
+    const combinedItems = [...saveItems, ...ownedItems].sort(
+      (a, b) => new Date(b.saved_at).getTime() - new Date(a.saved_at).getTime()
+    );
+
+    const total = combinedItems.length;
+    const totalPages = Math.ceil(total / limit);
+    const pageItems = combinedItems.slice(offset, offset + limit);
+
+    if (pageItems.length === 0) {
       return {
         recipe_saves: [],
         pagination: {
           page,
           limit,
-          total: count ?? 0,
-          totalPages: Math.ceil((count ?? 0) / limit),
+          total,
+          totalPages,
         },
       };
     }
 
-    const recipeIds = saves.map((save) => save.recipe_id);
+    const recipeIds = pageItems.map((item) => item.recipe_id);
     const { data: recipes, error: recipeError } = await supabaseAdmin
       .from('recipes')
       .select('*')
@@ -281,17 +318,18 @@ export class RecipeSavesService {
     }
 
     const recipeSaves: RecipeSaveListItem[] = [];
-    for (const save of saves) {
-      const recipeData = recipeDataById.get(save.recipe_id);
+    for (const item of pageItems) {
+      const recipeData = recipeDataById.get(item.recipe_id);
       if (!recipeData) {
         continue;
       }
       recipeSaves.push({
-        id: save.id,
-        saved_at: save.created_at,
-        source_recipe_id: save.source_recipe_id,
-        daily_plan_item_id: save.daily_plan_item_id,
+        id: item.kind === 'save' ? item.save_id : null,
+        saved_at: item.saved_at,
+        source_recipe_id: item.source_recipe_id,
+        daily_plan_item_id: item.daily_plan_item_id,
         recipe_data: withRecipeOwnership(recipeData, { isUserOwned: true }),
+        is_saved: item.kind === 'save',
       });
     }
 
@@ -300,8 +338,8 @@ export class RecipeSavesService {
       pagination: {
         page,
         limit,
-        total: count ?? 0,
-        totalPages: Math.ceil((count ?? 0) / limit),
+        total,
+        totalPages,
       },
     };
   }
