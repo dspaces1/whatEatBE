@@ -34,8 +34,8 @@ export class ForbiddenError extends AppError {
 }
 
 export class BadRequestError extends AppError {
-  constructor(message: string) {
-    super(message, 400, 'BAD_REQUEST');
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, 400, 'BAD_REQUEST', details);
   }
 }
 
@@ -61,7 +61,6 @@ export class ImportError extends AppError {
     super(message, statusCode, code, details);
   }
 }
-
 
 
 

@@ -5,6 +5,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { BadRequestError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
 
 const router = Router();
 
@@ -62,7 +63,18 @@ router.post('/recipe-images', requireAuth, async (req, res: Response, next) => {
       .createSignedUploadUrl(path);
 
     if (error || !data?.signedUrl) {
-      throw new BadRequestError('Failed to create upload URL');
+      logger.error(
+        {
+          error,
+          bucket: env.SUPABASE_STORAGE_BUCKET,
+          path,
+        },
+        'Failed to create signed upload URL'
+      );
+      throw new BadRequestError('Failed to create upload URL', {
+        storage_message: error?.message ?? null,
+        storage_status: (error as { statusCode?: number })?.statusCode ?? null,
+      });
     }
 
     const { data: publicData } = supabaseAdmin.storage
