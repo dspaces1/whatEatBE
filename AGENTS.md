@@ -16,6 +16,7 @@ Short context for future work on daily AI recipes and cron jobs.
 - Uploads: `POST /api/v1/uploads/recipe-images` (requires `content_type`, `file_size_bytes`, optional `file_name`, 10 MB max) returns a signed upload URL for Supabase public storage; client uploads binary, then uses `public_url` in recipe `media`.
 - Recipe payloads now include `ownership` (is_user_owned/can_edit/can_delete) and `editable_recipe_id` to signal editability without exposing user ids.
 - Import URL preview order: JSON-LD, ChatGPT share parser, Readability (jsdom), heuristics, then AI fallback (optionally using extracted text); returns a recipe envelope without persisting until `/recipes` is called.
+- Text recipe preview: `POST /api/v1/recipe/generate` accepts `{ text }`, returns `extracted_from: ai` with `recipe_data` + `save_payload`, and rejects non-meal requests with 400.
 - Dietary labels are normalized to this canonical snake_case list in AI generation, URL extraction, and DB writes/reads: vegan, vegetarian, gluten_free, dairy_free, nut_free, shellfish_free, keto_friendly, high_protein.
 - Cuisine is normalized to this canonical snake_case list in AI generation, URL extraction, and DB writes/reads: american, mexican, italian, chinese, japanese, korean, thai, vietnamese, indian, mediterranean, middle_eastern, french, caribbean, soul_food.
 - Tags are normalized to this canonical snake_case list in AI generation, URL extraction, and DB writes/reads: breakfast, meal, dessert, snack.

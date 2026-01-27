@@ -8,6 +8,7 @@ import feedRouter from './feed.js';
 import shareRouter from './share.js';
 import recipeSavesRouter from './recipe-saves.js';
 import uploadsRouter from './uploads.js';
+import recipeGenerateRouter from './recipe-generate.js';
 
 export const routes = Router();
 
@@ -26,6 +27,7 @@ routes.use('/share', shareRouter);
 // Protected routes
 routes.use('/recipes', recipesRouter);
 routes.use('/recipe-saves', recipeSavesRouter);
+routes.use('/recipe', recipeGenerateRouter);
 routes.use('/uploads', uploadsRouter);
 routes.use('/import', importRouter);
 routes.use('/daily', dailyRouter);

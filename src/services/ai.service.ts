@@ -17,6 +17,7 @@ import {
   type RecipeEnvelope,
 } from '../schemas/envelope.js';
 import type { UserPreferences, Json, Recipe } from '../types/index.js';
+import { z } from 'zod';
 
 // JSON schema for AI recipe output (for structured outputs)
 const AI_RECIPE_JSON_SCHEMA = {
@@ -65,6 +66,32 @@ const AI_RECIPE_JSON_SCHEMA = {
   ],
   additionalProperties: false,
 } as const;
+
+const AI_TEXT_RECIPE_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    ...AI_RECIPE_JSON_SCHEMA.properties,
+    is_meal_request: { type: 'boolean' },
+    non_meal_reason: { type: ['string', 'null'] },
+  },
+  required: [
+    ...AI_RECIPE_JSON_SCHEMA.required,
+    'is_meal_request',
+    'non_meal_reason',
+  ],
+  additionalProperties: false,
+} as const;
+
+const aiTextRecipeOutputSchema = aiRecipeOutputSchema.extend({
+  is_meal_request: z.boolean(),
+  non_meal_reason: z.string().max(500).nullable().optional(),
+});
+
+type TextRecipeResult = {
+  envelope: RecipeEnvelope | null;
+  isMealRequest: boolean;
+  nonMealReason?: string | null;
+};
 
 export class AIService {
   private openai: OpenAI | null = null;
@@ -145,6 +172,78 @@ export class AIService {
       return envelope;
     } catch (error) {
       logger.error({ error }, 'Failed to generate recipe');
+      return null;
+    }
+  }
+
+  /**
+   * Generate a recipe based on a user text prompt
+   */
+  async generateRecipeFromText(text: string): Promise<TextRecipeResult | null> {
+    if (!this.openai) {
+      logger.warn('OpenAI API key not configured');
+      return null;
+    }
+
+    try {
+      const systemPrompt = this.buildTextRecipeSystemPrompt();
+      const userPrompt = `Create a recipe based on this request:\n\n${text}`;
+
+      const response = await this.openai.chat.completions.create({
+        model: env.OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'recipe_from_text',
+            strict: true,
+            schema: AI_TEXT_RECIPE_JSON_SCHEMA,
+          },
+        },
+        temperature: 0.7,
+        max_completion_tokens: env.OPENAI_MAX_COMPLETION_TOKENS,
+      });
+
+      const choice = response.choices[0];
+      const content = choice?.message?.content ?? '';
+      if (!content) {
+        logger.error({
+          finishReason: choice?.finish_reason,
+          refusal: choice?.message?.refusal,
+        }, 'AI returned empty response for text recipe');
+        return null;
+      }
+
+      const parsed = JSON.parse(content);
+      const validated = aiTextRecipeOutputSchema.parse(parsed);
+
+      if (!validated.is_meal_request) {
+        return {
+          envelope: null,
+          isMealRequest: false,
+          nonMealReason: validated.non_meal_reason ?? null,
+        };
+      }
+
+      const { is_meal_request: _isMealRequest, non_meal_reason: _nonMealReason, ...recipeFields } = validated;
+      const normalized: AIRecipeOutput = {
+        ...recipeFields,
+        tags: normalizeRecipeTags(recipeFields.tags),
+        cuisine: normalizeCuisine(recipeFields.cuisine),
+        dietary_labels: normalizeDietaryLabels(recipeFields.dietary_labels),
+      };
+
+      const envelope = wrapAIOutput(normalized);
+
+      return {
+        envelope,
+        isMealRequest: true,
+      };
+    } catch (error) {
+      logger.error({ error }, 'Failed to generate recipe from text');
       return null;
     }
   }
@@ -327,6 +426,26 @@ Guidelines:
 - If cuisine is unclear, return null
 - Keep ingredient lists between 5-15 items
 - Keep steps between 4-10 instructions
+
+Output a JSON object with the recipe details.`;
+  }
+
+  private buildTextRecipeSystemPrompt(): string {
+    return `You are a recipe creator for whatEat. Follow the user's request closely.
+
+Rules:
+- If the request is not for a meal/food recipe, set is_meal_request=false and provide a short non_meal_reason.
+- Default to a simple, home-cook version unless the user explicitly asks for complexity.
+- Use common ingredients and straightforward techniques for simple recipes.
+- Keep ingredient lists between 5-12 items for simple recipes.
+- Keep steps between 4-8 instructions for simple recipes.
+- Tags must use this exact list: ${CANONICAL_RECIPE_TAGS.join(', ')}
+- Use "meal" for lunch/dinner mains
+- If a tag is not clearly applicable, omit it (return an empty array if none)
+- Dietary labels must use this exact list: ${CANONICAL_DIETARY_LABELS.join(', ')}
+- Only include dietary labels that are clearly applicable; otherwise return an empty array
+- Cuisine must use this exact list: ${CANONICAL_CUISINES.join(', ')}
+- If cuisine is unclear, return null
 
 Output a JSON object with the recipe details.`;
   }
