@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "rebuild:esbuild": "npm rebuild esbuild",
     "jobs:daily": "bash scripts/daily-generation.sh",
     "backfill:daily-plans": "tsx --env-file=.env scripts/backfill-daily-meal-plans.ts",
     "backfill:normalize-recipes": "tsx --env-file=.env scripts/backfill-normalize-recipes.ts",

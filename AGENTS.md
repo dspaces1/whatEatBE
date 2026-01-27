@@ -25,11 +25,13 @@ Short context for future work on daily AI recipes and cron jobs.
 - Auth: API auth uses Supabase access tokens verified via JWKS (RS256) against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` with `apikey: ${SUPABASE_ANON_KEY}`; requires `aud=authenticated` and matching issuer (`${SUPABASE_URL}/auth/v1`). `SUPABASE_JWT_SECRET` is no longer used.
 - OpenAI: `OPENAI_MODEL` uses `max_completion_tokens` (env: `OPENAI_MAX_COMPLETION_TOKENS`).
   - JSON schema uses `additionalProperties: false` and requires all properties (nullable allowed).
+  - Some models (e.g., gpt-5 family) reject custom `temperature`; `ai.service` omits temperature for those to use the default.
 - Image generation: `DALLE_MODEL` must be supported value (e.g., `gpt-image-1.5` or `dall-e-3`).
   - `style`/`quality` only sent for `dall-e-3`; base64 handling for non-DALL-E URL responses.
 - Migrations: `002_daily_generation.sql` (runs + suggestion metadata), `003_remove_daily_ai_enabled.sql` (removed opt-out flag), `004_shared_daily_plans.sql` (shared plans + recipe saves).
 - Project structure: `src/` app code, `scripts/` cron/ops, `dist/` build output, `supabase/` SQL/migrations, `docs/` notes.
 - Build/run commands: `npm run dev`, `npm run build`, `npm run start`, `npm run typecheck`, `npm run jobs:daily`.
+- Local troubleshooting: `npm run rebuild:esbuild` fixes esbuild binary mismatch when Node architecture changes (e.g., Rosetta vs arm64).
 - TypeScript ESM project; avoid editing `dist/` directly—regenerate via `npm run build`.
 - Config hygiene: local dev uses `.env` (tsx `--env-file`); production uses injected env vars—don’t commit secrets.
 - Always update this markdown file if any changes effect the context found here

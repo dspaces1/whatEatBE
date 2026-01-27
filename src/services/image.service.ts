@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { supabaseAdmin } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+import { getOpenAIErrorDetails } from '../utils/openai-errors.js';
 
 export class ImageService {
   private openai: OpenAI | null = null;
@@ -86,7 +87,13 @@ export class ImageService {
       }, 'Image generation returned no image data');
       return null;
     } catch (error) {
-      logger.error({ error, title, model: env.DALLE_MODEL }, 'Failed to generate recipe image');
+      const openaiError = getOpenAIErrorDetails(error);
+      logger.error({
+        error,
+        openaiError,
+        title,
+        model: env.DALLE_MODEL,
+      }, 'Failed to generate recipe image');
       return null;
     }
   }

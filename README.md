@@ -130,7 +130,31 @@ npm run dev       # Start dev server with hot reload
 npm run build     # Compile TypeScript
 npm run start     # Run compiled code
 npm run typecheck # Type check without emitting
+npm run rebuild:esbuild # Fix esbuild binary for your current Node architecture
 ```
+
+## Troubleshooting
+
+### esbuild/tsx architecture mismatch (macOS)
+
+If you see an error like "You installed esbuild for another platform", your
+Node architecture does not match the installed esbuild binary.
+
+Quick fix:
+
+```bash
+npm run rebuild:esbuild
+```
+
+If that does not work, reinstall dependencies using a single architecture:
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
+
+Tip: On Apple Silicon, avoid mixing Rosetta (x64) Node with arm64 installs.
+`node -p process.arch` should align with `uname -m`.
 
 ## License
 

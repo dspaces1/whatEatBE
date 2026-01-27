@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { supabaseAdmin } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+import { getOpenAIErrorDetails } from '../utils/openai-errors.js';
 import { imageService } from './image.service.js';
 import { CANONICAL_DIETARY_LABELS, normalizeDietaryLabels } from '../utils/dietary-labels.js';
 import { CANONICAL_CUISINES, normalizeCuisine } from '../utils/cuisines.js';
@@ -102,6 +103,13 @@ export class AIService {
     }
   }
 
+  private getTemperature(preferred: number): number | undefined {
+    if (env.OPENAI_MODEL.startsWith('gpt-5')) {
+      return undefined;
+    }
+    return preferred;
+  }
+
   /**
    * Generate a recipe based on user preferences
    */
@@ -120,6 +128,7 @@ export class AIService {
 
       logger.info({ preferences }, 'Generating recipe with AI');
 
+      const temperature = this.getTemperature(1);
       const response = await this.openai.chat.completions.create({
         model: env.OPENAI_MODEL,
         messages: [
@@ -134,7 +143,7 @@ export class AIService {
             schema: AI_RECIPE_JSON_SCHEMA,
           },
         },
-        temperature: 1,
+        ...(temperature !== undefined ? { temperature } : {}),
         max_completion_tokens: env.OPENAI_MAX_COMPLETION_TOKENS,
       });
 
@@ -171,7 +180,13 @@ export class AIService {
       logger.info({ title: normalized.title }, 'Successfully generated recipe');
       return envelope;
     } catch (error) {
-      logger.error({ error }, 'Failed to generate recipe');
+      const openaiError = getOpenAIErrorDetails(error);
+      logger.error({
+        error,
+        openaiError,
+        model: env.OPENAI_MODEL,
+        maxCompletionTokens: env.OPENAI_MAX_COMPLETION_TOKENS,
+      }, 'Failed to generate recipe');
       return null;
     }
   }
@@ -189,6 +204,7 @@ export class AIService {
       const systemPrompt = this.buildTextRecipeSystemPrompt();
       const userPrompt = `Create a recipe based on this request:\n\n${text}`;
 
+      const temperature = this.getTemperature(0.7);
       const response = await this.openai.chat.completions.create({
         model: env.OPENAI_MODEL,
         messages: [
@@ -203,7 +219,7 @@ export class AIService {
             schema: AI_TEXT_RECIPE_JSON_SCHEMA,
           },
         },
-        temperature: 0.7,
+        ...(temperature !== undefined ? { temperature } : {}),
         max_completion_tokens: env.OPENAI_MAX_COMPLETION_TOKENS,
       });
 
@@ -243,7 +259,13 @@ export class AIService {
         isMealRequest: true,
       };
     } catch (error) {
-      logger.error({ error }, 'Failed to generate recipe from text');
+      const openaiError = getOpenAIErrorDetails(error);
+      logger.error({
+        error,
+        openaiError,
+        model: env.OPENAI_MODEL,
+        maxCompletionTokens: env.OPENAI_MAX_COMPLETION_TOKENS,
+      }, 'Failed to generate recipe from text');
       return null;
     }
   }
@@ -338,6 +360,7 @@ export class AIService {
       const systemPrompt = this.buildSystemPrompt();
       const userPrompt = `Generate a creative ${theme} recipe. Make it unique and interesting, with a catchy title.`;
 
+      const temperature = this.getTemperature(0.9);
       const response = await this.openai.chat.completions.create({
         model: env.OPENAI_MODEL,
         messages: [
@@ -352,7 +375,7 @@ export class AIService {
             schema: AI_RECIPE_JSON_SCHEMA,
           },
         },
-        temperature: 0.9,
+        ...(temperature !== undefined ? { temperature } : {}),
         max_completion_tokens: env.OPENAI_MAX_COMPLETION_TOKENS,
       });
 
@@ -383,7 +406,14 @@ export class AIService {
 
       return wrapAIOutput(normalized, image?.url);
     } catch (error) {
-      logger.error({ error, theme }, 'Failed to generate themed recipe');
+      const openaiError = getOpenAIErrorDetails(error);
+      logger.error({
+        error,
+        openaiError,
+        theme,
+        model: env.OPENAI_MODEL,
+        maxCompletionTokens: env.OPENAI_MAX_COMPLETION_TOKENS,
+      }, 'Failed to generate themed recipe');
       return null;
     }
   }

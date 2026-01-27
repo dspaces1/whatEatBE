@@ -7,6 +7,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { recipeService } from './recipe.service.js';
 import { logger } from '../utils/logger.js';
+import { getOpenAIErrorDetails } from '../utils/openai-errors.js';
 import { ImportError, RateLimitError } from '../utils/errors.js';
 import { CANONICAL_DIETARY_LABELS, normalizeDietaryLabels } from '../utils/dietary-labels.js';
 import { CANONICAL_CUISINES, normalizeCuisine } from '../utils/cuisines.js';
@@ -405,9 +406,12 @@ export class ImportService {
         failed: !attempt.envelope,
       };
     } catch (error) {
+      const openaiError = getOpenAIErrorDetails(error);
       logger.warn({
         error,
+        openaiError,
         sourceUrl,
+        model: env.OPENAI_MODEL,
         ai_response_preview: rawContent ? truncate(rawContent, 2000) : null,
       }, 'AI extraction failed');
       return { attempted: true, failed: true };
